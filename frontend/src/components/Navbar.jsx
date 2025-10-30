@@ -58,7 +58,7 @@ export default function Navbar() {
     if (isConnected && address) {
       refetchPoints();
       refetchName();
-      // Fetch user from database
+      // Also fetch from database for backup
       fetchUserFromDb(address);
     } else {
       setUserPoints(0);
@@ -88,7 +88,10 @@ export default function Navbar() {
     try {
       const response = await axios.get(`${API_BASE}/users/${walletAddress}`);
       if (response.data && response.data.displayName) {
-        setDisplayName(response.data.displayName);
+        // Use DB data as fallback if blockchain data not available yet
+        if (!nameData) {
+          setDisplayName(response.data.displayName);
+        }
       }
     } catch (error) {
       // User might not exist in DB yet
@@ -96,7 +99,7 @@ export default function Navbar() {
     }
   };
 
-  // --- Save display name to database ---
+  // --- Save display name to database (after blockchain confirmation) ---
   
   const saveDisplayNameToDb = async (name, walletAddress) => {
     try {
@@ -124,6 +127,10 @@ export default function Navbar() {
   
   useEffect(() => {
     const handleTransactionFlow = async () => {
+      if (isPending) {
+        toast.loading("Confirm transaction in wallet...", { id: "setNameToast" });
+      }
+      
       if (isConfirming) {
         toast.loading("Setting name on blockchain...", { id: "setNameToast" });
       }
@@ -146,7 +153,7 @@ export default function Navbar() {
       }
 
       if (isWriteError || isReceiptError) {
-        const errorMsg = writeError?.shortMessage || receiptError?.shortMessage || "An unknown error occurred.";
+        const errorMsg = writeError?.shortMessage || receiptError?.shortMessage || "Transaction failed";
         console.error("SetDisplayName Error:", writeError || receiptError);
         toast.error(`Error: ${errorMsg}`, { id: "setNameToast" });
       }
@@ -154,6 +161,7 @@ export default function Navbar() {
 
     handleTransactionFlow();
   }, [
+    isPending,
     isConfirming, 
     isConfirmed, 
     newName, 
@@ -186,7 +194,7 @@ export default function Navbar() {
       return;
     }
     
-    // First write to blockchain
+    // Write to blockchain first
     writeContract({
       address: CONTRACT_ADDRESS,
       abi: CONTRACT_ABI,
@@ -268,6 +276,7 @@ export default function Navbar() {
                       onChange={(e) => setNewName(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleSetDisplayName()}
                       className="px-3 py-2 rounded-lg bg-white/20 text-white placeholder-white/70 text-sm focus:outline-none focus:ring-2 focus:ring-white w-32 lg:w-36"
+                      disabled={isPending || isConfirming || savingToDb}
                     />
                     <button
                       onClick={handleSetDisplayName}
@@ -345,6 +354,7 @@ export default function Navbar() {
                       onChange={(e) => setNewName(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleSetDisplayName()}
                       className="flex-1 px-3 py-2 rounded-lg bg-white/20 text-white placeholder-white/70 text-sm focus:outline-none focus:ring-2 focus:ring-white"
+                      disabled={isPending || isConfirming || savingToDb}
                     />
                     <button
                       onClick={handleSetDisplayName}

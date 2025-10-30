@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Set or update display name
+// Set or update display name (Database only - no blockchain)
 export const setDisplayName = async (req, res, next) => {
   try {
     const { walletAddress, displayName } = req.body;
@@ -29,10 +29,11 @@ export const setDisplayName = async (req, res, next) => {
       }
     });
     
-    console.log('✅ Display name saved for:', walletAddress);
+    console.log('✅ Display name saved to database:', walletAddress, '→', displayName.trim());
     
     res.json({ 
       success: true,
+      message: 'Display name saved successfully',
       user: {
         walletAddress: user.walletAddress,
         displayName: user.displayName
@@ -86,6 +87,9 @@ export const getOrCreateUser = async (req, res, next) => {
       user = await prisma.user.create({
         data: { walletAddress }
       });
+      console.log('✅ New user created:', walletAddress);
+    } else {
+      console.log('✅ Existing user found:', walletAddress);
     }
     
     res.json(user);
