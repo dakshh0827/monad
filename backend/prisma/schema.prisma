@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model Article {
+  id                String     @id @default(auto()) @map("_id") @db.ObjectId
+  articleId         Int?       // On-chain article ID from smart contract
+  title             String
+  summary           String     // Short summary for listing
+  detailedSummary   String?    // Full comprehensive summary
+  fullContent       String?    // Extracted full article content
+  keyPoints         String[]   @default([]) // Array of key takeaways
+  sections          Json[]     @default([]) // Structured sections
+  statistics        Json[]     @default([]) // Data/stats mentioned
+  imageUrl          String?
+  articleUrl        String     @unique // Original news article URL
+  cardJson          String?
+  ipfsHash          String?    // IPFS CID
+  curator           String?    // Wallet address of curator
+  upvotes           Int        @default(0)
+  upvotedBy         String[]   @default([]) // Array of wallet addresses/session IDs
+  onChain           Boolean    @default(false)
+  createdAt         DateTime   @default(now())
+  comments          Comment[]
+}
+
+model Comment {
+  id            String     @id @default(auto()) @map("_id") @db.ObjectId
+  commentId     Int?       // On-chain comment ID
+  articleId     String     @db.ObjectId
+  article       Article    @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  articleUrl    String
+  content       String
+  author        String     // Wallet address or anonymous session ID
+  authorName    String?    // Optional display name
+  ipfsHash      String?
+  upvotes       Int        @default(0)
+  upvotedBy     String[]   @default([]) // Array of wallet addresses/session IDs
+  onChain       Boolean    @default(false)
+  parentId      String?    @db.ObjectId // For nested replies
+  parent        Comment?   @relation("CommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies       Comment[]  @relation("CommentReplies")
+  createdAt     DateTime   @default(now())
+}
