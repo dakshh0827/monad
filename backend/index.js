@@ -9,7 +9,13 @@ import errorHandler from './middlewares/errorHandler.js';
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: 'http://localhost:5173', // Allow frontend running on Vite
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    credentials: true, // if you're using cookies or authentication
+  })
+);
 app.use(express.json());
 
 // Routes
