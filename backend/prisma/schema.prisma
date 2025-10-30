@@ -7,6 +7,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id            String     @id @default(auto()) @map("_id") @db.ObjectId
+  walletAddress String     @unique
+  displayName   String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
 model Article {
   id                String     @id @default(auto()) @map("_id") @db.ObjectId
   articleId         Int?       // On-chain article ID from smart contract
@@ -22,8 +30,9 @@ model Article {
   cardJson          String?
   ipfsHash          String?    // IPFS CID
   curator           String?    // Wallet address of curator
+  curatorName       String?    // Display name of curator
   upvotes           Int        @default(0)
-  upvotedBy         String[]   @default([]) // Array of wallet addresses/session IDs
+  upvotedBy         Json[]     @default([]) // Array of {address, name} objects
   onChain           Boolean    @default(false)
   createdAt         DateTime   @default(now())
   comments          Comment[]
@@ -37,10 +46,10 @@ model Comment {
   articleUrl    String
   content       String
   author        String     // Wallet address or anonymous session ID
-  authorName    String?    // Optional display name
+  authorName    String?    // Display name from database
   ipfsHash      String?
   upvotes       Int        @default(0)
-  upvotedBy     String[]   @default([]) // Array of wallet addresses/session IDs
+  upvotedBy     Json[]     @default([]) // Array of {address, name} objects
   onChain       Boolean    @default(false)
   parentId      String?    @db.ObjectId // For nested replies
   parent        Comment?   @relation("CommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import { useParams, useNavigate } from "react-router-dom";
+import { useAccount } from "wagmi";
 import axios from "axios";
 import toast from "react-hot-toast";
 
@@ -10,6 +11,7 @@ const API_BASE = 'http://localhost:5000/api';
 export default function ArticleDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { address, isConnected } = useAccount();
   
   const [article, setArticle] = useState(null);
   const [commentText, setCommentText] = useState("");
@@ -20,7 +22,10 @@ export default function ArticleDetailPage() {
   const [commenting, setCommenting] = useState(false);
   const [error, setError] = useState(null);
   const [userId] = useState(() => {
-    // Generate or retrieve session ID for anonymous users
+    // Use wallet address if connected, otherwise anonymous ID
+    if (isConnected && address) {
+      return address;
+    }
     let id = localStorage.getItem('userId');
     if (!id) {
       id = 'anon_' + Math.random().toString(36).substring(2, 15);
@@ -52,20 +57,39 @@ export default function ArticleDetailPage() {
     setArticle(prev => ({ ...prev, ...updates }));
   };
 
+  // Helper to check if user has upvoted
+  const hasUserUpvoted = (upvotedByArray) => {
+    if (!Array.isArray(upvotedByArray)) return false;
+    return upvotedByArray.some(vote => {
+      if (typeof vote === 'string') {
+        return vote === userId;
+      }
+      return vote.address === userId;
+    });
+  };
+
   const handleUpvote = async () => {
     setUpvoting(true);
     const loadingToast = toast.loading('Processing upvote...');
     
     try {
+      const currentUserId = isConnected && address ? address : userId;
+      
       await axios.post(`${API_BASE}/articles/upvote`, {
         articleId: article.id,
-        userId: userId
+        userId: currentUserId
       });
       
       // Update state directly instead of refetching
+      const newUpvote = {
+        address: currentUserId,
+        name: isConnected ? 'You' : 'Anonymous',
+        timestamp: new Date().toISOString()
+      };
+      
       updateArticleState({
         upvotes: article.upvotes + 1,
-        upvotedBy: [...article.upvotedBy, userId]
+        upvotedBy: [...article.upvotedBy, newUpvote]
       });
       
       toast.success('Upvote successful!', { id: loadingToast });
@@ -88,15 +112,15 @@ export default function ArticleDetailPage() {
     const loadingToast = toast.loading('Posting comment...');
     
     try {
+      const currentUserId = isConnected && address ? address : userId;
+      
       const res = await axios.post(`${API_BASE}/comments`, {
         articleId: article.id,
         articleUrl: article.articleUrl,
         content: commentText.trim(),
-        author: userId,
-        authorName: 'Anonymous User'
+        author: currentUserId
       });
       
-      // Backend returns the comment directly
       const newComment = {
         ...res.data,
         replies: res.data.replies || []
@@ -124,16 +148,16 @@ export default function ArticleDetailPage() {
     const loadingToast = toast.loading('Posting reply...');
     
     try {
+      const currentUserId = isConnected && address ? address : userId;
+      
       const res = await axios.post(`${API_BASE}/comments`, {
         articleId: article.id,
         articleUrl: article.articleUrl,
         content: replyText.trim(),
-        author: userId,
-        authorName: 'Anonymous User',
+        author: currentUserId,
         parentId: parentId
       });
       
-      // Backend returns the comment directly in res.data
       const newReply = res.data;
       
       const updatedComments = article.comments.map(comment => {
@@ -160,19 +184,26 @@ export default function ArticleDetailPage() {
     const loadingToast = toast.loading('Processing upvote...');
     
     try {
+      const currentUserId = isConnected && address ? address : userId;
+      
       await axios.post(`${API_BASE}/comments/upvote`, {
         commentId: commentId,
-        userId: userId
+        userId: currentUserId
       });
       
-      // Update comment upvote count in state (works for both comments and replies)
+      // Update comment upvote count in state
       const updateCommentsUpvote = (comments) => {
         return comments.map(comment => {
           if (comment.id === commentId) {
+            const newUpvote = {
+              address: currentUserId,
+              name: isConnected ? 'You' : 'Anonymous',
+              timestamp: new Date().toISOString()
+            };
             return { 
               ...comment, 
               upvotes: comment.upvotes + 1,
-              upvotedBy: [...(comment.upvotedBy || []), userId]
+              upvotedBy: [...(comment.upvotedBy || []), newUpvote]
             };
           }
           if (comment.replies && comment.replies.length > 0) {
@@ -193,14 +224,21 @@ export default function ArticleDetailPage() {
   };
 
   const renderComment = (comment, isReply = false) => {
-    const hasUpvoted = comment.upvotedBy?.includes(userId);
+    const hasUpvoted = hasUserUpvoted(comment.upvotedBy);
     
     return (
       <div key={comment.id} className={`${isReply ? 'ml-12 mt-3' : 'mb-4'} bg-gray-50 border border-gray-200 rounded-lg p-4`}>
         <div className="flex items-start justify-between mb-2">
-          <span className="font-medium text-gray-700">
-            {comment.authorName || 'Anonymous'}
-          </span>
+          <div>
+            <span className="font-medium text-gray-700">
+              {comment.authorName || 'Anonymous'}
+            </span>
+            {comment.author && !comment.author.startsWith('anon_') && (
+              <span className="ml-2 text-xs text-gray-500">
+                ({comment.author.substring(0, 6)}...{comment.author.substring(38)})
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <button
               onClick={() => handleUpvoteComment(comment.id)}
@@ -308,7 +346,7 @@ export default function ArticleDetailPage() {
     );
   }
 
-  const canUpvote = !article.upvotedBy.includes(userId);
+  const canUpvote = !hasUserUpvoted(article.upvotedBy);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -337,6 +375,13 @@ export default function ArticleDetailPage() {
               <h1 className="text-4xl font-bold mb-4 text-gray-900">
                 {article.title}
               </h1>
+              
+              {/* Curator Info */}
+              {article.curator && (
+                <div className="mb-4 text-sm text-gray-600">
+                  Curated by: <span className="font-medium">{article.curatorName || article.curator}</span>
+                </div>
+              )}
               
               {/* Short Summary */}
               <div className="bg-blue-50 border-l-4 border-blue-600 p-4 mb-6">
@@ -410,7 +455,7 @@ export default function ArticleDetailPage() {
                 <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 mb-6">
                   <h3 className="font-bold text-green-800 mb-2">⛓️ Blockchain Information</h3>
                   <div className="text-sm text-green-700 space-y-1">
-                    <p><strong>Curator:</strong> {article.curator}</p>
+                    <p><strong>Curator:</strong> {article.curatorName || article.curator}</p>
                     <p><strong>IPFS Hash:</strong> {article.ipfsHash}</p>
                     <p><strong>On-chain ID:</strong> {article.articleId}</p>
                   </div>
