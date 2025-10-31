@@ -377,3 +377,25 @@ export const getAllArticlesIncludingPending = async (req, res, next) => {
     next(error);
   }
 };
+
+// ADD THIS NEW FUNCTION
+export const uploadArticleToIPFS = async (req, res, next) => {
+  try {
+    // The article JSON preview is in the request body
+    const articleData = req.body; 
+    
+    if (!articleData || !articleData.title || !articleData.articleUrl) {
+      return res.status(400).json({ error: 'Missing article data' });
+    }
+    
+    console.log(`📤 Uploading "${articleData.title.substring(0, 30)}..." to IPFS...`);
+    
+    const ipfsHash = await uploadToIPFS(articleData);
+    
+    console.log(`✅ IPFS Upload successful: ${ipfsHash}`);
+    
+    res.json({ ipfsHash });
+  } catch (error) {
+    next(error);
+  }
+};

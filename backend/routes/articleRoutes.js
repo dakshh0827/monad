@@ -18,6 +18,9 @@ router.get('/by-url', articleController.getArticleByUrl);
 // STEP 1: Scrape and preview
 router.post('/scrape', articleController.scrapeAndSummarize);
 
+// NEW ROUTE: STEP 2A (IPFS Upload)
+router.post('/upload-ipfs', articleController.uploadArticleToIPFS);
+
 // STEP 2: Prepare for curation
 router.post('/prepare', articleController.prepareArticleForCuration);
 

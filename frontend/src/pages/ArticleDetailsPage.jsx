@@ -2,238 +2,450 @@ import React, { useEffect, useState } from "react";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import { useParams, useNavigate } from "react-router-dom";
-import { useAccount } from "wagmi";
-import axios from "axios";
+import { useArticleStore } from "../stores/articleStore";
 import toast from "react-hot-toast";
-
-const API_BASE = 'http://localhost:5000/api';
+import { 
+  useAccount, 
+  useReadContract, 
+  useWriteContract, 
+  useWaitForTransactionReceipt, 
+  useSwitchChain,
+  useWatchContractEvent
+} from "wagmi";
+import { CONTRACT_ABI, CONTRACT_ADDRESS, monadTestnet } from "../wagmiConfig";
+import { decodeEventLog } from "viem";
 
 export default function ArticleDetailPage() {
-  const { id } = useParams();
+  const { id } = useParams(); // MongoDB Article ID
   const navigate = useNavigate();
-  const { address, isConnected } = useAccount();
   
-  const [article, setArticle] = useState(null);
+  // --- Zustand Store ---
+  const { 
+    selectedArticle: article, 
+    loadArticle, 
+    setUserPoints, 
+    prepareCommentForChain, 
+    markCommentOnChainDB,
+    syncArticleUpvotesDB,
+    syncCommentUpvotesDB
+  } = useArticleStore();
+  
+  // --- Local State ---
   const [commentText, setCommentText] = useState("");
   const [replyText, setReplyText] = useState("");
   const [replyingTo, setReplyingTo] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [upvoting, setUpvoting] = useState(false);
-  const [commenting, setCommenting] = useState(false);
   const [error, setError] = useState(null);
-  const [userId] = useState(() => {
-    // Use wallet address if connected, otherwise anonymous ID
-    if (isConnected && address) {
-      return address;
-    }
-    let id = localStorage.getItem('userId');
-    if (!id) {
-      id = 'anon_' + Math.random().toString(36).substring(2, 15);
-      localStorage.setItem('userId', id);
-    }
-    return id;
+  const [pendingCommentData, setPendingCommentData] = useState(null); // Store comment data between prepare and confirmation
+
+  // --- Wagmi Hooks ---
+  const { address, isConnected, chainId } = useAccount();
+  const { switchChain } = useSwitchChain();
+
+  // --- ADD THE FOLLOWING BLOCK ---
+  // Listener for new comments on the blockchain
+  useWatchContractEvent({
+    address: CONTRACT_ADDRESS,
+    abi: CONTRACT_ABI,
+    eventName: 'CommentPosted',
+    // Only listen if the article is on-chain
+    enabled: !!article?.articleId, 
+    onLogs(logs) {
+      for (const log of logs) {
+        try {
+          const event = decodeEventLog({ 
+            abi: CONTRACT_ABI, 
+            data: log.data, 
+            topics: log.topics 
+          });
+
+          // Check if the event is for the article we are currently viewing
+          if (article?.articleId && event.args.articleId === BigInt(article.articleId)) {
+            // Reload the article data (including comments) from your fast MongoDB cache
+            loadArticle(id); 
+            toast.success("New comment detected on-chain!");
+          }
+        } catch (decodeError) {
+          // Ignore non-CommentPosted logs
+          console.log("Skipping log:", decodeError);
+        }
+      }
+    },
+  });
+// --- END OF NEW BLOCK ---
+  
+  // Separate write contracts for upvotes and comments
+  const { 
+    data: voteHash, 
+    isPending: isVoting, 
+    writeContract: writeVote,
+    error: voteError 
+  } = useWriteContract();
+  
+  const { 
+    data: commentHash, 
+    isPending: isCommenting, 
+    writeContract: writeComment,
+    error: commentError 
+  } = useWriteContract();
+
+  // Transaction receipts
+  const { 
+    isLoading: isVoteConfirming, 
+    isSuccess: isVoteConfirmed, 
+    data: voteReceipt 
+  } = useWaitForTransactionReceipt({ hash: voteHash });
+    
+  const { 
+    isLoading: isCommentConfirming, 
+    isSuccess: isCommentConfirmed, 
+    data: commentReceipt 
+  } = useWaitForTransactionReceipt({ hash: commentHash });
+
+  // --- Read Contract Data ---
+  // Check if user has upvoted this article
+  const { data: hasUpvotedArticle, refetch: refetchHasUpvotedArticle } = useReadContract({
+    abi: CONTRACT_ABI,
+    address: CONTRACT_ADDRESS,
+    functionName: 'hasUserUpvotedArticle',
+    args: [address, article?.articleId],
+    enabled: isConnected && !!article?.articleId,
   });
 
+  // Get user's display name
+  const { data: userDisplayName } = useReadContract({
+    abi: CONTRACT_ABI,
+    address: CONTRACT_ADDRESS,
+    functionName: 'getDisplayName',
+    args: [address],
+    enabled: isConnected && !!address,
+  });
+
+  // --- Load Article on Mount ---
   useEffect(() => {
-    fetchArticle();
-  }, [id]);
-
-  const fetchArticle = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await axios.get(`${API_BASE}/articles/${id}`);
-      setArticle(res.data);
-    } catch (err) {
-      setError('Failed to load article');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Update article state without refetching
-  const updateArticleState = (updates) => {
-    setArticle(prev => ({ ...prev, ...updates }));
-  };
-
-  // Helper to check if user has upvoted
-  const hasUserUpvoted = (upvotedByArray) => {
-    if (!Array.isArray(upvotedByArray)) return false;
-    return upvotedByArray.some(vote => {
-      if (typeof vote === 'string') {
-        return vote === userId;
+    const fetchArticle = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        await loadArticle(id);
+      } catch (err) {
+        setError('Failed to load article');
+        console.error(err);
+      } finally {
+        setLoading(false);
       }
-      return vote.address === userId;
-    });
-  };
+    };
+    fetchArticle();
+  }, [id, loadArticle]);
 
-  const handleUpvote = async () => {
-    setUpvoting(true);
-    const loadingToast = toast.loading('Processing upvote...');
-    
-    try {
-      const currentUserId = isConnected && address ? address : userId;
-      
-      await axios.post(`${API_BASE}/articles/upvote`, {
-        articleId: article.id,
-        userId: currentUserId
+  // --- Helper: Check if user can upvote article ---
+  const isCurator = isConnected && article?.curator?.toLowerCase() === address?.toLowerCase();
+  const canUpvoteArticle = isConnected && !isCurator && !hasUpvotedArticle;
+
+  // --- Helper: Switch network if needed ---
+  const callContract = (writeFn, config, toastId) => {
+    if (chainId !== monadTestnet.id) {
+      toast.loading("Switching to Monad Testnet...", { id: toastId });
+      switchChain({ chainId: monadTestnet.id }, {
+        onSuccess: () => {
+          toast.loading('Please confirm in wallet...', { id: toastId });
+          writeFn(config);
+        },
+        onError: (err) => {
+          toast.error("Network switch failed", { id: toastId });
+          console.error(err);
+        }
       });
-      
-      // Update state directly instead of refetching
-      const newUpvote = {
-        address: currentUserId,
-        name: isConnected ? 'You' : 'Anonymous',
-        timestamp: new Date().toISOString()
-      };
-      
-      updateArticleState({
-        upvotes: article.upvotes + 1,
-        upvotedBy: [...article.upvotedBy, newUpvote]
-      });
-      
-      toast.success('Upvote successful!', { id: loadingToast });
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Upvote failed', { id: loadingToast });
-    } finally {
-      setUpvoting(false);
+    } else {
+      writeFn(config);
     }
   };
 
+  // --- Handler: Upvote Article ---
+  const handleUpvoteArticle = async () => {
+    if (!canUpvoteArticle) {
+      if (!isConnected) toast.error("Please connect wallet");
+      else if (isCurator) toast.error("Cannot upvote your own article");
+      else if (hasUpvotedArticle) toast.error("Already upvoted");
+      return;
+    }
+    
+    const toastId = toast.loading('Processing upvote...');
+    
+    callContract(writeVote, {
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
+      functionName: 'upvoteArticle',
+      args: [article.articleId],
+    }, toastId);
+  };
+
+  // --- Handler: Post Comment ---
   const handleComment = async (e) => {
     e.preventDefault();
     
     if (!commentText.trim()) {
-      toast.error('Please enter a comment');
+      toast.error("Please enter a comment");
       return;
     }
     
-    setCommenting(true);
-    const loadingToast = toast.loading('Posting comment...');
+    if (!isConnected) {
+      toast.error("Please connect wallet to comment");
+      return;
+    }
+    
+    const toastId = toast.loading('Preparing comment...');
     
     try {
-      const currentUserId = isConnected && address ? address : userId;
-      
-      const res = await axios.post(`${API_BASE}/comments`, {
-        articleId: article.id,
+      // Step 1: Save to DB and upload to IPFS
+      const { commentMongoId, onChainArticleId, ipfsHash } = await prepareCommentForChain({
+        articleId: article.id, // MongoDB ID
         articleUrl: article.articleUrl,
         content: commentText.trim(),
-        author: currentUserId
+        author: address,
+        authorName: userDisplayName || `${address.substring(0, 6)}...${address.substring(38)}`
       });
+
+      // Store for later use after transaction confirms
+      setPendingCommentData({ commentMongoId, ipfsHash });
       
-      const newComment = {
-        ...res.data,
-        replies: res.data.replies || []
-      };
-      
-      updateArticleState({
-        comments: [...(article.comments || []), newComment]
-      });
-      
-      setCommentText("");
-      toast.success('Comment posted!', { id: loadingToast });
+      // Step 2: Submit to blockchain
+      toast.loading('Please confirm in wallet...', { id: toastId });
+      callContract(writeComment, {
+        address: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
+        functionName: 'postComment',
+        args: [onChainArticleId, ipfsHash],
+      }, toastId);
+
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Comment failed', { id: loadingToast });
-    } finally {
-      setCommenting(false);
+      toast.error(err.message || 'Failed to prepare comment', { id: toastId });
+      console.error(err);
     }
   };
 
-  const handleReply = async (parentId) => {
+  // --- Handler: Post Reply ---
+  const handleReply = async (parentComment) => {
     if (!replyText.trim()) {
-      toast.error('Please enter a reply');
+      toast.error("Please enter a reply");
       return;
     }
     
-    const loadingToast = toast.loading('Posting reply...');
+    if (!isConnected) {
+      toast.error("Please connect wallet to reply");
+      return;
+    }
+    
+    const toastId = toast.loading('Preparing reply...');
     
     try {
-      const currentUserId = isConnected && address ? address : userId;
-      
-      const res = await axios.post(`${API_BASE}/comments`, {
+      // Step 1: Save to DB and upload to IPFS
+      const { commentMongoId, onChainArticleId, ipfsHash } = await prepareCommentForChain({
         articleId: article.id,
         articleUrl: article.articleUrl,
         content: replyText.trim(),
-        author: currentUserId,
-        parentId: parentId
+        author: address,
+        authorName: userDisplayName || `${address.substring(0, 6)}...${address.substring(38)}`,
+        parentId: parentComment.id // MongoDB parent ID
       });
+
+      setPendingCommentData({ commentMongoId, ipfsHash });
       
-      const newReply = res.data;
+      // Step 2: Submit to blockchain
+      toast.loading('Please confirm in wallet...', { id: toastId });
+      callContract(writeComment, {
+        address: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
+        functionName: 'postComment',
+        args: [onChainArticleId, ipfsHash],
+      }, toastId);
+
+    } catch (err) {
+      toast.error(err.message || 'Failed to prepare reply', { id: toastId });
+      console.error(err);
+    }
+  };
+
+  // --- Handler: Upvote Comment ---
+  const handleUpvoteComment = async (comment) => {
+    if (!isConnected) {
+      toast.error("Please connect wallet");
+      return;
+    }
+    
+    // Check if user already upvoted (from DB data)
+    if (comment.upvotedBy?.some(vote => 
+      typeof vote === 'string' ? vote === address : vote.address?.toLowerCase() === address?.toLowerCase()
+    )) {
+      toast.error("Already upvoted this comment");
+      return;
+    }
+    
+    // Check if user is the commenter
+    if (comment.author?.toLowerCase() === address?.toLowerCase()) {
+      toast.error("Cannot upvote your own comment");
+      return;
+    }
+    
+    if (!comment.commentId) {
+      toast.error("Comment not yet on-chain");
+      return;
+    }
+    
+    const toastId = toast.loading('Upvoting comment...');
+    
+    callContract(writeVote, {
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
+      functionName: 'upvoteComment',
+      args: [comment.commentId],
+    }, toastId);
+  };
+  
+  // --- Effect: Handle Vote Confirmation ---
+  useEffect(() => {
+    if (isVoteConfirming) {
+      toast.loading('Confirming vote on blockchain...', { id: "voteToast" });
+    }
+    
+    if (isVoteConfirmed && voteReceipt) {
+      toast.success('Vote confirmed!', { id: "voteToast" });
       
-      const updatedComments = article.comments.map(comment => {
-        if (comment.id === parentId) {
-          return {
-            ...comment,
-            replies: [...(comment.replies || []), newReply]
-          };
+      try {
+        // Parse transaction logs
+        for (const log of voteReceipt.logs) {
+          try {
+            const event = decodeEventLog({ 
+              abi: CONTRACT_ABI, 
+              data: log.data, 
+              topics: log.topics 
+            });
+            
+            if (event.eventName === 'ArticleUpvoted') {
+              const newUpvoteCount = Number(event.args.newUpvoteCount);
+              syncArticleUpvotesDB(article.articleUrl, newUpvoteCount);
+            }
+            
+            if (event.eventName === 'CommentUpvoted') {
+              const commentId = Number(event.args.commentId);
+              const newUpvoteCount = Number(event.args.newUpvoteCount);
+              syncCommentUpvotesDB(commentId, newUpvoteCount);
+            }
+            
+            if (event.eventName === 'PointsAwarded') {
+              const awardedUser = event.args.user.toLowerCase();
+              const totalPoints = Number(event.args.totalPoints);
+              
+              // Update points if it's for the current user
+              if (awardedUser === address?.toLowerCase()) {
+                setUserPoints(totalPoints);
+              }
+            }
+          } catch (decodeError) {
+            // Skip logs that aren't from our contract
+            console.log("Skipping log:", decodeError);
+          }
         }
-        return comment;
-      });
+      } catch (err) {
+        console.error("Error parsing vote logs:", err);
+      }
       
-      updateArticleState({ comments: updatedComments });
+      // Refetch article and upvote status
+      loadArticle(id);
+      refetchHasUpvotedArticle();
+    }
+  }, [isVoteConfirming, isVoteConfirmed, voteReceipt, address, id]);
+  
+  // --- Effect: Handle Comment Confirmation ---
+  useEffect(() => {
+    if (isCommentConfirming) {
+      toast.loading('Confirming comment on blockchain...', { id: "commentToast" });
+    }
+    
+    if (isCommentConfirmed && commentReceipt) {
+      toast.success('Comment posted on-chain!', { id: "commentToast" });
       
+      let onChainCommentId = null;
+      
+      try {
+        // Extract comment ID from event logs
+        for (const log of commentReceipt.logs) {
+          try {
+            const event = decodeEventLog({ 
+              abi: CONTRACT_ABI, 
+              data: log.data, 
+              topics: log.topics 
+            });
+            
+            if (event.eventName === 'CommentPosted') {
+              onChainCommentId = Number(event.args.commentId);
+              break;
+            }
+          } catch (decodeError) {
+            console.log("Skipping log:", decodeError);
+          }
+        }
+      } catch (err) {
+        console.error("Error parsing comment logs:", err);
+      }
+      
+      // Update DB with on-chain comment ID
+      if (onChainCommentId && pendingCommentData?.commentMongoId) {
+        markCommentOnChainDB(
+          pendingCommentData.commentMongoId, 
+          onChainCommentId, 
+          pendingCommentData.ipfsHash
+        );
+      }
+      
+      // Clear form and state
+      setCommentText("");
       setReplyText("");
       setReplyingTo(null);
-      toast.success('Reply posted!', { id: loadingToast });
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Reply failed', { id: loadingToast });
+      setPendingCommentData(null);
+      
+      // Reload article to show new comment
+      loadArticle(id);
     }
-  };
+  }, [isCommentConfirming, isCommentConfirmed, commentReceipt, pendingCommentData, id]);
 
-  const handleUpvoteComment = async (commentId) => {
-    const loadingToast = toast.loading('Processing upvote...');
-    
-    try {
-      const currentUserId = isConnected && address ? address : userId;
-      
-      await axios.post(`${API_BASE}/comments/upvote`, {
-        commentId: commentId,
-        userId: currentUserId
-      });
-      
-      // Update comment upvote count in state
-      const updateCommentsUpvote = (comments) => {
-        return comments.map(comment => {
-          if (comment.id === commentId) {
-            const newUpvote = {
-              address: currentUserId,
-              name: isConnected ? 'You' : 'Anonymous',
-              timestamp: new Date().toISOString()
-            };
-            return { 
-              ...comment, 
-              upvotes: comment.upvotes + 1,
-              upvotedBy: [...(comment.upvotedBy || []), newUpvote]
-            };
-          }
-          if (comment.replies && comment.replies.length > 0) {
-            return { ...comment, replies: updateCommentsUpvote(comment.replies) };
-          }
-          return comment;
-        });
-      };
-      
-      updateArticleState({
-        comments: updateCommentsUpvote(article.comments || [])
-      });
-      
-      toast.success('Comment upvoted!', { id: loadingToast });
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Upvote failed', { id: loadingToast });
+  // --- Effect: Handle Errors ---
+  useEffect(() => {
+    if (voteError) {
+      toast.error(voteError.message || "Voting failed");
+      console.error("Vote error:", voteError);
     }
-  };
+  }, [voteError]);
 
+  useEffect(() => {
+    if (commentError) {
+      toast.error(commentError.message || "Comment failed");
+      console.error("Comment error:", commentError);
+    }
+  }, [commentError]);
+
+  // --- Render Helper: Comment Component ---
   const renderComment = (comment, isReply = false) => {
-    const hasUpvoted = hasUserUpvoted(comment.upvotedBy);
+    const hasUpvoted = comment.upvotedBy?.some(vote => 
+      typeof vote === 'string' 
+        ? vote === address 
+        : vote.address?.toLowerCase() === address?.toLowerCase()
+    );
+    
+    const isCommenter = comment.author?.toLowerCase() === address?.toLowerCase();
+    const canUpvote = isConnected && !isCommenter && !hasUpvoted && comment.onChain;
     
     return (
-      <div key={comment.id} className={`${isReply ? 'ml-12 mt-3' : 'mb-4'} bg-gray-50 border border-gray-200 rounded-lg p-4`}>
+      <div 
+        key={comment.id} 
+        className={`${isReply ? 'ml-12 mt-3' : 'mb-4'} bg-gray-50 border border-gray-200 rounded-lg p-4`}
+      >
         <div className="flex items-start justify-between mb-2">
           <div>
             <span className="font-medium text-gray-700">
               {comment.authorName || 'Anonymous'}
             </span>
-            {comment.author && !comment.author.startsWith('anon_') && (
+            {comment.author && (
               <span className="ml-2 text-xs text-gray-500">
                 ({comment.author.substring(0, 6)}...{comment.author.substring(38)})
               </span>
@@ -241,19 +453,31 @@ export default function ArticleDetailPage() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => handleUpvoteComment(comment.id)}
-              disabled={hasUpvoted}
+              onClick={() => handleUpvoteComment(comment)}
+              disabled={!canUpvote}
               className={`flex items-center gap-1 text-sm ${
-                hasUpvoted 
+                !canUpvote 
                   ? 'text-gray-400 cursor-not-allowed' 
                   : 'text-blue-600 hover:text-blue-800'
               }`}
+              title={
+                !isConnected ? "Connect wallet to upvote" :
+                isCommenter ? "Cannot upvote own comment" :
+                hasUpvoted ? "Already upvoted" :
+                !comment.onChain ? "Comment not yet on-chain" :
+                "Upvote this comment"
+              }
             >
               👍 {comment.upvotes}
             </button>
             {comment.onChain && (
               <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">
                 ⛓️ On-chain
+              </span>
+            )}
+            {!comment.onChain && (
+              <span className="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">
+                ⏳ Pending
               </span>
             )}
           </div>
@@ -263,7 +487,7 @@ export default function ArticleDetailPage() {
         
         <div className="flex items-center gap-4 text-xs text-gray-400">
           <span>{new Date(comment.createdAt).toLocaleString()}</span>
-          {!isReply && (
+          {!isReply && isConnected && (
             <button
               onClick={() => setReplyingTo(comment.id)}
               className="text-blue-600 hover:text-blue-800"
@@ -282,13 +506,15 @@ export default function ArticleDetailPage() {
               value={replyText}
               onChange={e => setReplyText(e.target.value)}
               placeholder="Write your reply..."
+              disabled={isCommenting || isCommentConfirming}
             />
             <div className="flex gap-2 mt-2">
               <button
-                onClick={() => handleReply(comment.id)}
-                className="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700 text-sm"
+                onClick={() => handleReply(comment)}
+                className="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700 text-sm disabled:bg-gray-400"
+                disabled={isCommenting || isCommentConfirming || !replyText.trim()}
               >
-                Post Reply
+                {isCommenting || isCommentConfirming ? '⏳ Posting...' : 'Post Reply'}
               </button>
               <button
                 onClick={() => {
@@ -313,7 +539,8 @@ export default function ArticleDetailPage() {
     );
   };
 
-  if (loading) {
+  // --- Loading State ---
+  if (loading || !article) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navbar />
@@ -326,7 +553,8 @@ export default function ArticleDetailPage() {
     );
   }
 
-  if (error || !article) {
+  // --- Error State ---
+  if (error) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navbar />
@@ -346,14 +574,14 @@ export default function ArticleDetailPage() {
     );
   }
 
-  const canUpvote = !hasUserUpvoted(article.upvotedBy);
-
+  // --- Main Render ---
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
       
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
+          {/* Back Button */}
           <button 
             onClick={() => navigate('/curated')}
             className="mb-4 text-blue-600 hover:text-blue-800 flex items-center gap-2"
@@ -379,7 +607,7 @@ export default function ArticleDetailPage() {
               {/* Curator Info */}
               {article.curator && (
                 <div className="mb-4 text-sm text-gray-600">
-                  Curated by: <span className="font-medium">{article.curatorName || article.curator}</span>
+                  Curated by: <span className="font-medium">{article.curatorName || `${article.curator.substring(0, 6)}...${article.curator.substring(38)}`}</span>
                 </div>
               )}
               
@@ -456,8 +684,8 @@ export default function ArticleDetailPage() {
                   <h3 className="font-bold text-green-800 mb-2">⛓️ Blockchain Information</h3>
                   <div className="text-sm text-green-700 space-y-1">
                     <p><strong>Curator:</strong> {article.curatorName || article.curator}</p>
-                    <p><strong>IPFS Hash:</strong> {article.ipfsHash}</p>
-                    <p><strong>On-chain ID:</strong> {article.articleId}</p>
+                    <p><strong>IPFS Hash:</strong> <code className="bg-green-100 px-2 py-1 rounded">{article.ipfsHash}</code></p>
+                    <p><strong>On-chain ID:</strong> #{article.articleId}</p>
                   </div>
                 </div>
               )}
@@ -484,14 +712,18 @@ export default function ArticleDetailPage() {
                   
                   <button 
                     className={`px-8 py-3 rounded-lg font-medium transition-colors ${
-                      canUpvote && !upvoting
+                      canUpvoteArticle && !isVoting && !isVoteConfirming
                         ? 'bg-blue-600 text-white hover:bg-blue-700' 
                         : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     }`}
-                    onClick={handleUpvote}
-                    disabled={!canUpvote || upvoting}
+                    onClick={handleUpvoteArticle}
+                    disabled={!canUpvoteArticle || isVoting || isVoteConfirming}
                   >
-                    {upvoting ? '⏳ Upvoting...' : canUpvote ? '👍 Upvote' : '✓ Already Upvoted'}
+                    {isVoting || isVoteConfirming ? '⏳ Voting...' : 
+                     canUpvoteArticle ? '👍 Upvote' : 
+                     !isConnected ? 'Connect Wallet' :
+                     isCurator ? 'Your Article' :
+                     hasUpvotedArticle ? '✓ Upvoted' : 'Cannot Upvote'}
                   </button>
                 </div>
               </div>
@@ -503,23 +735,31 @@ export default function ArticleDetailPage() {
                 </h2>
                 
                 {/* Comment Form */}
-                <form onSubmit={handleComment} className="mb-8">
-                  <textarea
-                    className="w-full border-2 border-gray-300 p-4 rounded-lg focus:outline-none focus:border-blue-500 resize-none"
-                    rows={4}
-                    value={commentText}
-                    onChange={e => setCommentText(e.target.value)}
-                    placeholder="Share your thoughts..."
-                    disabled={commenting}
-                  />
-                  <button 
-                    type="submit"
-                    className="mt-3 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:bg-gray-400 font-medium"
-                    disabled={commenting || !commentText.trim()}
-                  >
-                    {commenting ? '⏳ Posting...' : '✉️ Post Comment'}
-                  </button>
-                </form>
+                {isConnected ? (
+                  <form onSubmit={handleComment} className="mb-8">
+                    <textarea
+                      className="w-full border-2 border-gray-300 p-4 rounded-lg focus:outline-none focus:border-blue-500 resize-none"
+                      rows={4}
+                      value={commentText}
+                      onChange={e => setCommentText(e.target.value)}
+                      placeholder="Share your thoughts..."
+                      disabled={isCommenting || isCommentConfirming}
+                    />
+                    <button 
+                      type="submit"
+                      className="mt-3 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:bg-gray-400 font-medium"
+                      disabled={isCommenting || isCommentConfirming || !commentText.trim()}
+                    >
+                      {isCommenting || isCommentConfirming ? '⏳ Posting...' : '✉️ Post Comment'}
+                    </button>
+                  </form>
+                ) : (
+                  <div className="mb-8 bg-yellow-50 border-2 border-yellow-200 rounded-lg p-4">
+                    <p className="text-yellow-800">
+                      🔒 Please connect your wallet to post comments
+                    </p>
+                  </div>
+                )}
                 
                 {/* Comments List */}
                 <div className="space-y-4">
