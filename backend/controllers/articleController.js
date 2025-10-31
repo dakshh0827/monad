@@ -45,14 +45,18 @@ export const getAllArticles = async (req, res, next) => {
 };
 
 // Get article by ID
+// Get article by ID
 export const getArticleById = async (req, res, next) => {
   try {
     const { id } = req.params;
+    
+    console.log('📖 Fetching article with ID:', id);
+    
     const article = await prisma.article.findUnique({
       where: { id },
       include: { 
         comments: {
-          where: { parentId: null },
+          where: { parentId: null }, // Only top-level comments
           orderBy: { createdAt: 'desc' },
           include: {
             replies: {
@@ -67,8 +71,11 @@ export const getArticleById = async (req, res, next) => {
       return res.status(404).json({ error: "Article not found" });
     }
     
+    console.log(`✅ Found article with ${article.comments?.length || 0} comments`);
+    
     res.json(article);
   } catch (error) {
+    console.error('Get article error:', error);
     next(error);
   }
 };
@@ -399,3 +406,4 @@ export const uploadArticleToIPFS = async (req, res, next) => {
     next(error);
   }
 };
+

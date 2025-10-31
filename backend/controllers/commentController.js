@@ -60,7 +60,11 @@ export const addComment = async (req, res, next) => {
       }
     });
     
-    res.status(201).json(comment);
+    // res.status(201).json(comment);
+    res.status(201).json({ 
+  ...comment,
+  id: comment.id // Ensure ID is returned
+});
   } catch (error) {
     console.error('Add comment error:', error);
     next(error);

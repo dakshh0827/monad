@@ -3,35 +3,34 @@ import * as articleController from '../controllers/articleController.js';
 
 const router = express.Router();
 
-// Get all curated (on-chain) articles
-router.get('/', articleController.getAllArticles);
+// IMPORTANT: Order matters! Put specific routes BEFORE parameterized routes
 
-// Get ALL articles (including pending)
-router.get('/all', articleController.getAllArticlesIncludingPending);
-
-// Get article by MongoDB ID
-router.get('/:id', articleController.getArticleById);
-
-// Get article by original URL
-router.get('/by-url', articleController.getArticleByUrl);
-
-// STEP 1: Scrape and preview
+// Scrape article (Step 1)
 router.post('/scrape', articleController.scrapeAndSummarize);
 
-// NEW ROUTE: STEP 2A (IPFS Upload)
-router.post('/upload-ipfs', articleController.uploadArticleToIPFS);
-
-// STEP 2: Prepare for curation
+// Prepare article for curation (Step 2 - saves to DB)
 router.post('/prepare', articleController.prepareArticleForCuration);
 
-// STEP 3: Mark as on-chain
+// Upload article to IPFS
+router.post('/upload-ipfs', articleController.uploadArticleToIPFS);
+
+// Mark article as on-chain (Step 3)
 router.post('/mark-onchain', articleController.markOnChain);
+
+// Get all articles (including pending)
+router.get('/all', articleController.getAllArticlesIncludingPending);
+
+// Get article by URL - MUST come before /:id route
+router.get('/by-url', articleController.getArticleByUrl);
 
 // Upvote article (wallet-optional for testing)
 router.post('/upvote', articleController.upvoteArticle);
 
 // Sync upvotes from blockchain
 router.post('/sync-upvotes', articleController.syncUpvotes);
+
+// Get article by ID - MUST come after /by-url and other specific routes
+router.get('/:id', articleController.getArticleById);
 
 // Delete article
 router.delete('/:id', articleController.deleteArticle);

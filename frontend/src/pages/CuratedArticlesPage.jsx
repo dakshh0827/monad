@@ -1,6 +1,8 @@
+// frontend/src/pages/CuratedArticlesPage.jsx
 import React, { useEffect, useState } from "react";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
+import Leaderboard from "../components/Leaderboard";
 import { useArticleStore } from "../stores/articleStore";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -17,9 +19,10 @@ export default function CuratedArticlesPage() {
     const fetchArticles = async () => {
       try {
         setLoading(true);
+        setError(null);
         // Fetch ALL articles (not just on-chain)
         const res = await axios.get('http://localhost:5000/api/articles/all');
-        setArticles(res.data);
+        setArticles(res.data || []);
       } catch (err) {
         setError('Failed to load articles');
         console.error(err);
@@ -88,112 +91,123 @@ export default function CuratedArticlesPage() {
             </button>
           </div>
         </div>
-        
-        {/* Loading State */}
-        {loading && (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            <p className="text-gray-600 mt-4">Loading articles...</p>
+
+        {/* Two Column Layout: Leaderboard (Left) + Articles (Right) */}
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* Leaderboard - Takes 1 column on large screens */}
+          <div className="lg:col-span-1">
+            <Leaderboard />
           </div>
-        )}
-        
-        {/* Error State */}
-        {error && !loading && (
-          <div className="bg-red-50 border-2 border-red-300 text-red-800 px-6 py-4 rounded-lg">
-            <p className="font-medium">❌ {error}</p>
-          </div>
-        )}
-        
-        {/* Empty State */}
-        {!loading && !error && filteredArticles.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-lg shadow">
-            <p className="text-gray-600 text-xl mb-4">
-              {filter === 'all' && 'No articles yet'}
-              {filter === 'onchain' && 'No on-chain articles yet'}
-              {filter === 'pending' && 'No pending articles'}
-            </p>
-            <button
-              onClick={() => navigate('/')}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
-            >
-              Curate First Article
-            </button>
-          </div>
-        )}
-        
-        {/* Articles Grid */}
-        {!loading && !error && filteredArticles.length > 0 && (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredArticles.map((article) => (
-              <div
-                key={article.id}
-                className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow cursor-pointer overflow-hidden"
-                onClick={() => handleCardClick(article.id)}
-              >
-                {/* Image */}
-                <div className="relative h-48 bg-gray-200">
-                  <img
-                    src={article.imageUrl || '/fallback.jpg'}
-                    alt={article.title}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.target.src = '/fallback.jpg';
-                    }}
-                  />
-                  {/* Status Badge */}
-                  {article.onChain ? (
-                    <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded text-xs font-bold">
-                      ⛓️ ON-CHAIN
-                    </div>
-                  ) : (
-                    <div className="absolute top-2 right-2 bg-yellow-500 text-white px-2 py-1 rounded text-xs font-bold">
-                      ⏳ PENDING
-                    </div>
-                  )}
-                </div>
-                
-                {/* Content */}
-                <div className="p-4">
-                  <h2 className="font-bold text-lg mb-2 line-clamp-2 text-gray-900">
-                    {article.title}
-                  </h2>
-                  
-                  <p className="text-sm text-gray-600 mb-3 line-clamp-3">
-                    {article.summary}
-                  </p>
-                  
-                  {/* Metadata */}
-                  <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
-                    <span className="flex items-center gap-1">
-                      👍 {article.upvotes} upvotes
-                    </span>
-                    <span className="flex items-center gap-1">
-                      💬 {article.comments?.length || 0} comments
-                    </span>
-                  </div>
-                  
-                  {/* Curator */}
-                  {article.curator && (
-                    <div className="text-xs text-gray-500 mb-3">
-                      Curated by: {article.curator.substring(0, 6)}...{article.curator.substring(38)}
-                    </div>
-                  )}
-                  
-                  {/* Action Button */}
-                  <button
-                    className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 font-medium text-sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCardClick(article.id);
-                    }}
-                  >
-                    Read More & Interact
-                  </button>
-                </div>
+
+          {/* Articles Section - Takes 2 columns on large screens */}
+          <div className="lg:col-span-2">
+            {/* Loading State */}
+            {loading && (
+              <div className="text-center py-12 bg-white rounded-lg shadow">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                <p className="text-gray-600 mt-4">Loading articles...</p>
               </div>
-            ))}
+            )}
+            
+            {/* Error State */}
+            {error && !loading && (
+              <div className="bg-red-50 border-2 border-red-300 text-red-800 px-6 py-4 rounded-lg">
+                <p className="font-medium">❌ {error}</p>
+              </div>
+            )}
+            
+            {/* Empty State */}
+            {!loading && !error && filteredArticles.length === 0 && (
+              <div className="text-center py-12 bg-white rounded-lg shadow">
+                <p className="text-gray-600 text-xl mb-4">
+                  {filter === 'all' && 'No articles yet'}
+                  {filter === 'onchain' && 'No on-chain articles yet'}
+                  {filter === 'pending' && 'No pending articles'}
+                </p>
+                <button
+                  onClick={() => navigate('/')}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
+                >
+                  Curate First Article
+                </button>
+              </div>
+            )}
+            
+            {/* Articles Grid */}
+            {!loading && !error && filteredArticles.length > 0 && (
+              <div className="grid md:grid-cols-2 gap-6">
+                {filteredArticles.map((article) => (
+                  <div
+                    key={article.id}
+                    className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow cursor-pointer overflow-hidden"
+                    onClick={() => handleCardClick(article.id)}
+                  >
+                    {/* Image */}
+                    <div className="relative h-48 bg-gray-200">
+                      <img
+                        src={article.imageUrl || '/fallback.jpg'}
+                        alt={article.title}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.target.src = '/fallback.jpg';
+                        }}
+                      />
+                      {/* Status Badge */}
+                      {article.onChain ? (
+                        <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded text-xs font-bold">
+                          ⛓️ ON-CHAIN
+                        </div>
+                      ) : (
+                        <div className="absolute top-2 right-2 bg-yellow-500 text-white px-2 py-1 rounded text-xs font-bold">
+                          ⏳ PENDING
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Content */}
+                    <div className="p-4">
+                      <h2 className="font-bold text-lg mb-2 line-clamp-2 text-gray-900">
+                        {article.title}
+                      </h2>
+                      
+                      <p className="text-sm text-gray-600 mb-3 line-clamp-3">
+                        {article.summary}
+                      </p>
+                      
+                      {/* Metadata */}
+                      <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
+                        <span className="flex items-center gap-1">
+                          👍 {article.upvotes} upvotes
+                        </span>
+                        <span className="flex items-center gap-1">
+                          💬 {article.comments?.length || 0} comments
+                        </span>
+                      </div>
+                      
+                      {/* Curator */}
+                      {article.curator && (
+                        <div className="text-xs text-gray-500 mb-3">
+                          Curated by: {article.curatorName || `${article.curator.substring(0, 6)}...${article.curator.substring(38)}`}
+                        </div>
+                      )}
+                      
+                      {/* Action Button */}
+                      <button
+                        className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 font-medium text-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCardClick(article.id);
+                        }}
+                      >
+                        Read More & Interact
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        </div>
         
         {/* Stats Footer */}
         {!loading && articles.length > 0 && (
