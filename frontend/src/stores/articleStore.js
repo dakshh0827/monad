@@ -1,30 +1,22 @@
 import { create } from "zustand";
 import axios from "axios";
-// Ethers is no longer needed here!
-// wagmi and web3modal will handle all wallet/contract logic in your components.
 
 const API_BASE = 'http://localhost:5000/api';
 
 export const useArticleStore = create((set, get) => ({
-  // 1. STATE: Simplified state.
-  // We no longer store the wallet, provider, or contract.
-  // wagmi hooks provide these directly to your components.
+  // 1. STATE
   articles: [],
   selectedArticle: null,
   userPoints: 0,
   displayName: '',
   
-  // 2. SETTERS:
-  // Your components (like Navbar) will use wagmi's `useReadContract` hook
-  // to get data, and then call these setters to update the global state.
+  // 2. SETTERS
   setUserPoints: (points) => set({ userPoints: points }),
   setDisplayName: (name) => set({ displayName: name }),
   
-  // 3. API (AXIOS) FUNCTIONS:
-  // These functions remain, as they talk to your backend API.
+  // 3. API FUNCTIONS
   
   // Load ALL articles (on-chain and pending)
-  // (You had `loadArticles` but CuratedArticlesPage.jsx uses `/all`)
   loadAllArticles: async () => {
     try {
       const res = await axios.get(`${API_BASE}/articles/all`);
@@ -49,14 +41,7 @@ export const useArticleStore = create((set, get) => ({
     }
   },
   
-  // 4. REFACTORED "WRITE" FUNCTIONS
-  // These are now split. The component will do the contract write.
-  // The store will handle the related API (axios) calls.
-  
-  /**
-   * Part 1 of submitArticle: Calls the backend API to mark as on-chain.
-   * The component will call this *after* the `submitArticle` contract write is successful.
-   */
+  // Mark article as on-chain in DB
   markArticleOnChainDB: async (articleUrl, articleId, curator, ipfsHash) => {
     try {
       await axios.post(`${API_BASE}/articles/mark-onchain`, {
@@ -72,36 +57,33 @@ export const useArticleStore = create((set, get) => ({
     }
   },
 
-  /**
-   * Part 1 of upvoteArticle: Syncs the new upvote count to the database.
-   * The component will call this *after* the `upvoteArticle` contract write is successful.
-   */
+  // Sync article upvotes to database
   syncArticleUpvotesDB: async (articleUrl, upvotes) => {
      try {
         await axios.post(`${API_BASE}/articles/sync-upvotes`, {
           articleUrl,
           upvotes
         });
+        console.log('✅ Article upvotes synced to DB');
      } catch (error) {
         console.error('DB sync upvotes error:', error);
         throw new Error(error.message || 'Failed to sync upvotes in DB');
      }
   },
   
-  /**
-   * Part 1 of postComment: Creates comment in DB, uploads to IPFS, and gets on-chain ID.
-   * Returns data needed for the component to make the contract call.
-   */
-  prepareCommentForChain: async ({ articleId, articleUrl, content, author }) => {
+  // Prepare comment for blockchain (creates in DB, uploads to IPFS)
+  prepareCommentForChain: async ({ articleId, articleUrl, content, author, authorName, parentId }) => {
     try {
       console.log('💬 Preparing comment...');
       
       // Step 1: Create comment in database
       const res1 = await axios.post(`${API_BASE}/comments`, {
-        articleId, // This is the MongoDB ID
+        articleId, // MongoDB ID
         articleUrl,
         content,
-        author
+        author,
+        authorName,
+        parentId: parentId || null
       });
       const commentMongoId = res1.data.id;
       console.log('📝 Comment saved to DB:', commentMongoId);
@@ -111,6 +93,7 @@ export const useArticleStore = create((set, get) => ({
         commentId: commentMongoId,
         content,
         author,
+        authorName,
         articleUrl
       });
       const { ipfsHash } = res2.data;
@@ -133,10 +116,7 @@ export const useArticleStore = create((set, get) => ({
     }
   },
   
-  /**
-   * Part 2 of postComment: Marks the comment as on-chain in the DB.
-   * The component will call this *after* the `postComment` contract write is successful.
-   */
+  // Mark comment as on-chain in DB
   markCommentOnChainDB: async (commentMongoId, onChainCommentId, ipfsHash) => {
     try {
       await axios.post(`${API_BASE}/comments/mark-onchain`, {
@@ -151,29 +131,18 @@ export const useArticleStore = create((set, get) => ({
     }
   },
 
-  /**
-   * Part 1 of upvoteComment: Syncs the new upvote count to the database.
-   * The component will call this *after* the `upvoteComment` contract write is successful.
-   */
+  // Sync comment upvotes to database (uses MongoDB ID, not on-chain ID)
   syncCommentUpvotesDB: async (commentMongoId, upvotes) => {
     try {
       await axios.post(`${API_BASE}/comments/sync-upvotes`, {
-        commentId: commentMongoId,
+        commentId: commentMongoId, // This is the MongoDB ID
         upvotes
       });
-    } catch (error)
-    {
+      console.log('✅ Comment upvotes synced to DB');
+    } catch (error) {
       console.error('DB sync comment upvotes error:', error);
       throw new Error(error.message || 'Failed to sync comment upvotes in DB');
     }
   },
-  
-  // 5. REMOVED FUNCTIONS:
-  // - connectWallet (Handled by web3modal)
-  // - disconnectWallet (Handled by wagmi's `useDisconnect` hook)
-  // - setDisplayName (Component will use `useWriteContract` hook)
-  // - canUpvoteArticle (Component will use `useReadContract` hook)
-  // - canUpvoteComment (Component will use `useReadContract` hook)
-  // - getPlatformStats (Component will use `useReadContract` hook)
 
 }));

@@ -20,7 +20,7 @@ export default function ArticleDetailPage() {
   const navigate = useNavigate();
   
   const { 
-    selectedArticle: article, 
+    selectedArticle: storeArticle, 
     loadArticle, 
     setUserPoints, 
     prepareCommentForChain, 
@@ -29,15 +29,26 @@ export default function ArticleDetailPage() {
     syncCommentUpvotesDB
   } = useArticleStore();
   
+  // Local state for real-time updates
+  const [article, setArticle] = useState(null);
   const [commentText, setCommentText] = useState("");
   const [replyText, setReplyText] = useState("");
   const [replyingTo, setReplyingTo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pendingCommentData, setPendingCommentData] = useState(null);
+  const [hasUpvotedArticleLocal, setHasUpvotedArticleLocal] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const { address, isConnected, chainId } = useAccount();
   const { switchChain } = useSwitchChain();
+
+  // Sync local state with store article
+  useEffect(() => {
+    if (storeArticle && !isRefreshing) {
+      setArticle(JSON.parse(JSON.stringify(storeArticle))); // Deep clone
+    }
+  }, [storeArticle, isRefreshing]);
 
   useWatchContractEvent({
     address: CONTRACT_ADDRESS,
@@ -122,8 +133,15 @@ export default function ArticleDetailPage() {
     fetchArticle();
   }, [id, loadArticle]);
 
+  // Sync hasUpvotedArticle with local state
+  useEffect(() => {
+    if (hasUpvotedArticle !== undefined) {
+      setHasUpvotedArticleLocal(hasUpvotedArticle);
+    }
+  }, [hasUpvotedArticle]);
+
   const isCurator = isConnected && article?.curator?.toLowerCase() === address?.toLowerCase();
-  const canUpvoteArticle = isConnected && !isCurator && !hasUpvotedArticle;
+  const canUpvoteArticle = isConnected && !isCurator && !hasUpvotedArticleLocal;
 
   const callContract = (writeFn, config, toastId) => {
     if (chainId !== monadTestnet.id) {
@@ -147,11 +165,18 @@ export default function ArticleDetailPage() {
     if (!canUpvoteArticle) {
       if (!isConnected) toast.error("Please connect wallet");
       else if (isCurator) toast.error("Cannot upvote your own article");
-      else if (hasUpvotedArticle) toast.error("Already upvoted");
+      else if (hasUpvotedArticleLocal) toast.error("Already upvoted");
       return;
     }
     
     const toastId = toast.loading('Processing upvote...');
+    
+    // Optimistic update
+    setArticle(prev => ({
+      ...prev,
+      upvotes: prev.upvotes + 1
+    }));
+    setHasUpvotedArticleLocal(true);
     
     callContract(writeVote, {
       address: CONTRACT_ADDRESS,
@@ -161,7 +186,7 @@ export default function ArticleDetailPage() {
     }, toastId);
   };
 
-    const handleComment = async (e) => {
+  const handleComment = async (e) => {
     e.preventDefault();
     
     if (!commentText.trim()) {
@@ -187,6 +212,26 @@ export default function ArticleDetailPage() {
 
       setPendingCommentData({ commentMongoId, ipfsHash });
       
+      // Optimistic update - add pending comment
+      const tempComment = {
+        id: commentMongoId, // Use the actual MongoDB ID
+        content: commentText.trim(),
+        author: address,
+        authorName: userDisplayName || (address ? `${address.substring(0, 6)}...${address.substring(38)}` : ''),
+        upvotes: 0,
+        upvotedBy: [],
+        onChain: false,
+        createdAt: new Date().toISOString(),
+        replies: []
+      };
+      
+      setArticle(prev => ({
+        ...prev,
+        comments: [tempComment, ...(prev.comments || [])]
+      }));
+      
+      setCommentText("");
+      
       toast.loading('Please confirm in wallet...', { id: toastId });
       callContract(writeComment, {
         address: CONTRACT_ADDRESS,
@@ -198,6 +243,8 @@ export default function ArticleDetailPage() {
     } catch (err) {
       toast.error(err.message || 'Failed to prepare comment', { id: toastId });
       console.error(err);
+      // Revert optimistic update on error
+      await loadArticle(id);
     }
   };
 
@@ -224,7 +271,31 @@ export default function ArticleDetailPage() {
         parentId: parentComment.id
       });
 
-      setPendingCommentData({ commentMongoId, ipfsHash });
+      setPendingCommentData({ commentMongoId, ipfsHash, parentId: parentComment.id });
+      
+      // Optimistic update - add pending reply
+      const tempReply = {
+        id: commentMongoId, // Use the actual MongoDB ID
+        content: replyText.trim(),
+        author: address,
+        authorName: userDisplayName || (address ? `${address.substring(0, 6)}...${address.substring(38)}` : ''),
+        upvotes: 0,
+        upvotedBy: [],
+        onChain: false,
+        createdAt: new Date().toISOString()
+      };
+      
+      setArticle(prev => ({
+        ...prev,
+        comments: prev.comments.map(comment => 
+          comment.id === parentComment.id
+            ? { ...comment, replies: [...(comment.replies || []), tempReply] }
+            : comment
+        )
+      }));
+      
+      setReplyText("");
+      setReplyingTo(null);
       
       toast.loading('Please confirm in wallet...', { id: toastId });
       callContract(writeComment, {
@@ -237,6 +308,8 @@ export default function ArticleDetailPage() {
     } catch (err) {
       toast.error(err.message || 'Failed to prepare reply', { id: toastId });
       console.error(err);
+      // Revert optimistic update on error
+      await loadArticle(id);
     }
   };
 
@@ -264,6 +337,31 @@ export default function ArticleDetailPage() {
     }
     
     const toastId = toast.loading('Upvoting comment...');
+    
+    // Optimistic update for comment upvote
+    const updateCommentUpvote = (comments) => {
+      return comments.map(c => {
+        if (c.id === comment.id) {
+          return {
+            ...c,
+            upvotes: c.upvotes + 1,
+            upvotedBy: [...(c.upvotedBy || []), { address, timestamp: new Date().toISOString() }]
+          };
+        }
+        if (c.replies && c.replies.length > 0) {
+          return {
+            ...c,
+            replies: updateCommentUpvote(c.replies)
+          };
+        }
+        return c;
+      });
+    };
+    
+    setArticle(prev => ({
+      ...prev,
+      comments: updateCommentUpvote(prev.comments || [])
+    }));
     
     callContract(writeVote, {
       address: CONTRACT_ADDRESS,
@@ -293,12 +391,55 @@ export default function ArticleDetailPage() {
             if (event.eventName === 'ArticleUpvoted') {
               const newUpvoteCount = Number(event.args.newUpvoteCount);
               syncArticleUpvotesDB(article.articleUrl, newUpvoteCount);
+              // Update local state with confirmed count
+              setArticle(prev => ({
+                ...prev,
+                upvotes: newUpvoteCount
+              }));
             }
             
             if (event.eventName === 'CommentUpvoted') {
-              const commentId = Number(event.args.commentId);
+              const onChainCommentId = Number(event.args.commentId);
               const newUpvoteCount = Number(event.args.newUpvoteCount);
-              syncCommentUpvotesDB(commentId, newUpvoteCount);
+              
+              // Find the MongoDB ID from the on-chain comment ID
+              const findMongoId = (comments) => {
+                for (const c of comments) {
+                  if (c.commentId === onChainCommentId) {
+                    return c.id;
+                  }
+                  if (c.replies && c.replies.length > 0) {
+                    const foundId = findMongoId(c.replies);
+                    if (foundId) return foundId;
+                  }
+                }
+                return null;
+              };
+              
+              const mongoId = findMongoId(article.comments || []);
+              
+              if (mongoId) {
+                // Sync to database using MongoDB ID
+                syncCommentUpvotesDB(mongoId, newUpvoteCount);
+                
+                // Update local state with confirmed count
+                const updateCommentCount = (comments) => {
+                  return comments.map(c => {
+                    if (c.id === mongoId) {
+                      return { ...c, upvotes: newUpvoteCount };
+                    }
+                    if (c.replies && c.replies.length > 0) {
+                      return { ...c, replies: updateCommentCount(c.replies) };
+                    }
+                    return c;
+                  });
+                };
+                
+                setArticle(prev => ({
+                  ...prev,
+                  comments: updateCommentCount(prev.comments || [])
+                }));
+              }
             }
             
             if (event.eventName === 'PointsAwarded') {
@@ -317,10 +458,15 @@ export default function ArticleDetailPage() {
         console.error("Error parsing vote logs:", err);
       }
       
-      loadArticle(id);
-      refetchHasUpvotedArticle();
+      // Refresh from DB in background only after DB sync completes
+      setTimeout(async () => {
+        setIsRefreshing(true);
+        await loadArticle(id);
+        await refetchHasUpvotedArticle();
+        setIsRefreshing(false);
+      }, 3000); // Increased delay to ensure DB sync completes
     }
-  }, [isVoteConfirming, isVoteConfirmed, voteReceipt, address, id]);
+  }, [isVoteConfirming, isVoteConfirmed, voteReceipt, address, id, article]);
   
   useEffect(() => {
     if (isCommentConfirming) {
@@ -359,14 +505,34 @@ export default function ArticleDetailPage() {
           onChainCommentId, 
           pendingCommentData.ipfsHash
         );
+        
+        // Update the specific comment to show as on-chain
+        const updateCommentStatus = (comments) => {
+          return comments.map(c => {
+            if (c.id === pendingCommentData.commentMongoId) {
+              return { ...c, onChain: true, commentId: onChainCommentId };
+            }
+            if (c.replies && c.replies.length > 0) {
+              return { ...c, replies: updateCommentStatus(c.replies) };
+            }
+            return c;
+          });
+        };
+        
+        setArticle(prev => ({
+          ...prev,
+          comments: updateCommentStatus(prev.comments || [])
+        }));
       }
       
-      setCommentText("");
-      setReplyText("");
-      setReplyingTo(null);
       setPendingCommentData(null);
       
-      loadArticle(id);
+      // Refresh from DB to get the confirmed comment with all data
+      setTimeout(async () => {
+        setIsRefreshing(true);
+        await loadArticle(id);
+        setIsRefreshing(false);
+      }, 3000);
     }
   }, [isCommentConfirming, isCommentConfirmed, commentReceipt, pendingCommentData, id]);
 
@@ -374,6 +540,9 @@ export default function ArticleDetailPage() {
     if (voteError) {
       toast.error(voteError.message || "Voting failed");
       console.error("Vote error:", voteError);
+      // Revert optimistic updates on error
+      loadArticle(id);
+      refetchHasUpvotedArticle();
     }
   }, [voteError]);
 
@@ -381,6 +550,8 @@ export default function ArticleDetailPage() {
     if (commentError) {
       toast.error(commentError.message || "Comment failed");
       console.error("Comment error:", commentError);
+      // Revert optimistic updates on error
+      loadArticle(id);
     }
   }, [commentError]);
 
@@ -543,10 +714,10 @@ export default function ArticleDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen w-full bg-black">
       <Navbar />
       
-      <main className="container mx-auto px-4 py-8">
+      <main className="container mx-auto w-full px-4 py-8">
         <div className="max-w-5xl mx-auto">
           <button 
             onClick={() => navigate('/curated')}
@@ -582,7 +753,7 @@ export default function ArticleDetailPage() {
                   </div>
                   <div>
                     <span className="text-purple-400 font-bold text-xs block uppercase">Curated By</span>
-                    <span className="font-bold text-white text-sm">{`article.curatorName || ${article.curator.substring(0, 6)}...${article.curator.substring(38)}`}</span>
+                    <span className="font-bold text-white text-sm">{article.curatorName || `${article.curator.substring(0, 6)}...${article.curator.substring(38)}`}</span>
                   </div>
                 </div>
               )}
@@ -703,7 +874,7 @@ export default function ArticleDetailPage() {
                      canUpvoteArticle ? '👍 Upvote Article' : 
                      !isConnected ? '🔗 Connect Wallet' :
                      isCurator ? '✓ Your Article' :
-                     hasUpvotedArticle ? '✓ Already Upvoted' : 'Cannot Upvote'}
+                     hasUpvotedArticleLocal ? '✓ Already Upvoted' : 'Cannot Upvote'}
                   </button>
                 </div>
               </div>

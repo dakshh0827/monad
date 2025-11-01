@@ -71,7 +71,7 @@ export default function CuratedArticlesPage() {
             </div>
             <div>
               <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-wide">
-                Curated Articles
+                Collections
               </h1>
               <p className="text-purple-400 text-sm font-bold uppercase mt-1">
                 High-Quality Web3 Content from the Community
@@ -79,7 +79,7 @@ export default function CuratedArticlesPage() {
             </div>
           </div>
           <p className="text-purple-300 text-sm leading-relaxed max-w-3xl">
-            Explore articles handpicked by our community curators. Every article is verified, summarized, and enriched with AI-powered insights. Vote on your favorites, engage in discussions, and earn rewards for quality contributions. The best content rises to the top through community consensus.
+            Explore documents handpicked by our community curators. Every document is verified, summarized, and enriched with AI-powered insights. Vote on your favorites, engage in discussions, and earn rewards for quality contributions. The best content rises to the top through community consensus.
           </p>
         </div>
 
@@ -87,7 +87,7 @@ export default function CuratedArticlesPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
           <div className="bg-purple-950 border-2 border-purple-800 rounded-lg p-4 text-center hover:border-purple-600 transition-all duration-300">
             <div className="text-3xl font-black text-white mb-1">{articles.length}</div>
-            <div className="text-xs text-white font-bold uppercase">Total Articles</div>
+            <div className="text-xs text-white font-bold uppercase">Total Collections</div>
           </div>
           <div className="bg-purple-950 border-2 border-purple-800 rounded-lg p-4 text-center hover:border-purple-600 transition-all duration-300">
             <div className="text-3xl font-black text-white mb-1">
@@ -120,9 +120,9 @@ export default function CuratedArticlesPage() {
                 <BookOpen className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white uppercase tracking-wide">Browse All Articles</h2>
+                <h2 className="text-2xl font-black text-white uppercase tracking-wide">Browse All Collections</h2>
                 <p className="text-purple-400 text-xs font-bold uppercase mt-1">
-                  {articles.length} Article{articles.length !== 1 ? 's' : ''} Available
+                  {articles.length} Collection{articles.length !== 1 ? 's' : ''} Available
                 </p>
               </div>
             </div>
@@ -130,7 +130,7 @@ export default function CuratedArticlesPage() {
               onClick={() => navigate('/curate')}
               className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2.5 rounded-lg font-bold text-xs uppercase border-2 border-purple-500 transition-all duration-300 transform hover:scale-105"
             >
-              + Curate Article
+              + Curate 
             </button>
           </div>
 
@@ -144,7 +144,7 @@ export default function CuratedArticlesPage() {
               <div className="w-20 h-20 mx-auto mb-6 bg-purple-600 rounded-lg flex items-center justify-center border-2 border-purple-500">
                 <Inbox className="w-10 h-10 text-white" />
               </div>
-              <p className="text-purple-400 text-xl font-black uppercase mb-2">No Articles Yet</p>
+              <p className="text-purple-400 text-xl font-black uppercase mb-2">No Collections Yet</p>
               <p className="text-purple-500 text-sm font-bold mb-6">Be the first to curate quality content!</p>
               <button 
                 onClick={() => navigate('/curate')}
@@ -156,7 +156,7 @@ export default function CuratedArticlesPage() {
           ) : (
             <>
               <p className="text-purple-300 text-sm mb-6 leading-relaxed">
-                Each article has been carefully curated and processed with AI to provide you with comprehensive summaries, key takeaways, and important statistics. Click on any article to read the full analysis, engage with the community through comments, and show your appreciation with upvotes.
+                Each document has been carefully curated and processed with AI to provide you with comprehensive summaries, key takeaways, and important statistics. Click on any document to read the full analysis, engage with the community through comments, and show your appreciation with upvotes.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {articles.map((article) => (

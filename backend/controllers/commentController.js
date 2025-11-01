@@ -24,7 +24,7 @@ const getUserDisplayName = async (walletAddress) => {
 // Add comment (supports nested replies)
 export const addComment = async (req, res, next) => {
   try {
-    const { articleId, articleUrl, content, author, parentId } = req.body;
+    const { articleId, articleUrl, content, author, authorName, parentId } = req.body;
     
     if (!articleId || !articleUrl || !content || !author) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -41,8 +41,8 @@ export const addComment = async (req, res, next) => {
       }
     }
     
-    // Get author's display name from database
-    const authorName = await getUserDisplayName(author);
+    // Use provided authorName or fetch from database
+    const finalAuthorName = authorName || await getUserDisplayName(author);
     
     const comment = await prisma.comment.create({
       data: { 
@@ -50,7 +50,7 @@ export const addComment = async (req, res, next) => {
         articleUrl, 
         content, 
         author,
-        authorName,
+        authorName: finalAuthorName,
         parentId: parentId || null,
         onChain: false,
         upvotedBy: []
@@ -60,11 +60,12 @@ export const addComment = async (req, res, next) => {
       }
     });
     
-    // res.status(201).json(comment);
+    console.log(`✅ Comment created with ID: ${comment.id}${parentId ? ` (reply to ${parentId})` : ''}`);
+    
     res.status(201).json({ 
-  ...comment,
-  id: comment.id // Ensure ID is returned
-});
+      ...comment,
+      id: comment.id // Ensure ID is returned
+    });
   } catch (error) {
     console.error('Add comment error:', error);
     next(error);
@@ -74,19 +75,19 @@ export const addComment = async (req, res, next) => {
 // Upload comment to IPFS
 export const uploadCommentToIPFS = async (req, res, next) => {
   try {
-    const { commentId, content, author, articleUrl } = req.body;
+    const { commentId, content, author, authorName, articleUrl } = req.body;
     
     if (!commentId || !content || !author) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
     
-    // Get author's display name
-    const authorName = await getUserDisplayName(author);
+    // Use provided authorName or fetch from database
+    const finalAuthorName = authorName || await getUserDisplayName(author);
     
     const metadata = {
       content,
       author,
-      authorName,
+      authorName: finalAuthorName,
       articleUrl,
       timestamp: new Date().toISOString()
     };
@@ -97,6 +98,8 @@ export const uploadCommentToIPFS = async (req, res, next) => {
       where: { id: commentId },
       data: { ipfsHash }
     });
+    
+    console.log(`📤 Comment ${commentId} uploaded to IPFS: ${ipfsHash}`);
     
     res.json({ ipfsHash, commentId });
   } catch (error) {
@@ -121,6 +124,8 @@ export const markCommentOnChain = async (req, res, next) => {
         ipfsHash
       }
     });
+    
+    console.log(`⛓ Comment ${commentId} marked as on-chain with ID ${onChainCommentId}`);
     
     res.json(updated);
   } catch (error) {
@@ -212,7 +217,7 @@ export const upvoteComment = async (req, res, next) => {
   }
 };
 
-// Sync comment upvotes from blockchain
+// Sync comment upvotes from blockchain (uses MongoDB ID)
 export const syncCommentUpvotes = async (req, res, next) => {
   try {
     const { commentId, upvotes } = req.body;
@@ -221,13 +226,19 @@ export const syncCommentUpvotes = async (req, res, next) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
     
+    console.log(`🔄 Syncing upvotes for comment ${commentId}: ${upvotes}`);
+    
+    // commentId is the MongoDB ID, not the on-chain ID
     const updated = await prisma.comment.update({
       where: { id: commentId },
       data: { upvotes: parseInt(upvotes) }
     });
     
+    console.log(`✅ Comment ${commentId} upvotes synced: ${upvotes}`);
+    
     res.json(updated);
   } catch (error) {
+    console.error('Sync comment upvotes error:', error);
     next(error);
   }
 };

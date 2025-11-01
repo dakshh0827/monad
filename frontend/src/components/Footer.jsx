@@ -14,11 +14,11 @@ export default function Footer() {
                 <Rocket className="w-5 h-5 text-white" />
               </div>
               <span className="text-xl font-black text-white uppercase tracking-wide">
-                MonadFeed
+                ZeroLag
               </span>
             </Link>
             <p className="text-gray-400 text-sm leading-relaxed">
-              Decentralized Web3 news curation platform. Built on Monad testnet.
+              Blockchain curation platform. Built on Monad testnet.
             </p>
           </div>
 
@@ -33,7 +33,7 @@ export default function Footer() {
               </li>
               <li>
                 <Link to="/curated" className="text-gray-400 hover:text-purple-400 transition-colors text-sm font-bold">
-                  Curated Articles
+                  Curated Articles and Posts
                 </Link>
               </li>
               <li>
@@ -102,7 +102,7 @@ export default function Footer() {
         <div className="pt-8 border-t-2 border-purple-800">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-gray-400 text-sm font-bold">
-              © {new Date().getFullYear()} MonadFeed. Community Powered Web3 News.
+              © {new Date().getFullYear()} ZeroLag. Community Powered Web3 News.
             </p>
             <div className="flex items-center gap-2 bg-purple-950 border-2 border-purple-800 px-4 py-2 rounded-lg">
               <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
