@@ -6,25 +6,20 @@ import { useAccount, useReadContract, useDisconnect, useWriteContract, useWaitFo
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from "../wagmiConfig";
 import toast from "react-hot-toast";
 import axios from "axios";
+import { Rocket, Menu, X, Star, Link2 } from "lucide-react";
 
 const API_BASE = 'http://localhost:5000/api';
 
 export default function Navbar() {
   const { userPoints, displayName, setUserPoints, setDisplayName } = useArticleStore();
   const [newName, setNewName] = useState("");
-  const [isEditingName, setIsEditingName] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [savingToDb, setSavingToDb] = useState(false);
   
-  // Wagmi hooks
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
-  
-  // Web3Modal hook
   const { open } = useWeb3Modal();
 
-  // --- Contract Read Hooks ---
-  
   const { data: pointsData, refetch: refetchPoints } = useReadContract({
     abi: CONTRACT_ABI,
     address: CONTRACT_ADDRESS,
@@ -41,8 +36,6 @@ export default function Navbar() {
     enabled: isConnected && !!address,
   });
 
-  // --- Contract Write Hook for setDisplayName ---
-  
   const { data: hash, isPending, writeContract, error: writeError, isError: isWriteError } = useWriteContract();
 
   const { 
@@ -52,18 +45,14 @@ export default function Navbar() {
     isError: isReceiptError 
   } = useWaitForTransactionReceipt({ hash });
 
-  // --- Effects to sync wagmi data with zustand store ---
-
   useEffect(() => {
     if (isConnected && address) {
       refetchPoints();
       refetchName();
-      // Also fetch from database for backup
       fetchUserFromDb(address);
     } else {
       setUserPoints(0);
       setDisplayName('');
-      setIsEditingName(false);
     }
   }, [isConnected, address, refetchPoints, refetchName, setUserPoints, setDisplayName]);
 
@@ -76,31 +65,22 @@ export default function Navbar() {
   useEffect(() => {
     if (nameData) {
       setDisplayName(nameData);
-      if (nameData.trim()) {
-        setIsEditingName(false);
-      }
     }
   }, [nameData, setDisplayName]);
 
-  // --- Fetch user from database ---
-  
   const fetchUserFromDb = async (walletAddress) => {
     try {
       const response = await axios.get(`${API_BASE}/users/${walletAddress}`);
       if (response.data && response.data.displayName) {
-        // Use DB data as fallback if blockchain data not available yet
         if (!nameData) {
           setDisplayName(response.data.displayName);
         }
       }
     } catch (error) {
-      // User might not exist in DB yet
       console.log('User not found in DB or error:', error.message);
     }
   };
 
-  // --- Save display name to database (after blockchain confirmation) ---
-  
   const saveDisplayNameToDb = async (name, walletAddress) => {
     try {
       setSavingToDb(true);
@@ -123,8 +103,6 @@ export default function Navbar() {
     }
   };
 
-  // --- Effect to handle transaction state (loading/success/error) ---
-  
   useEffect(() => {
     const handleTransactionFlow = async () => {
       if (isPending) {
@@ -138,14 +116,12 @@ export default function Navbar() {
       if (isConfirmed) {
         toast.loading("Saving to database...", { id: "setNameToast" });
         
-        // Save to database after blockchain confirmation
         const dbSaved = await saveDisplayNameToDb(newName, address);
         
         if (dbSaved) {
           toast.success("Name saved successfully!", { id: "setNameToast" });
           setDisplayName(newName);
           setNewName("");
-          setIsEditingName(false);
           refetchName();
         } else {
           toast.error("Blockchain success but DB save failed", { id: "setNameToast" });
@@ -174,8 +150,6 @@ export default function Navbar() {
     receiptError
   ]);
 
-  // --- Handlers ---
-  
   const handleWalletAction = () => {
     if (isConnected) {
       disconnect();
@@ -194,7 +168,6 @@ export default function Navbar() {
       return;
     }
     
-    // Write to blockchain first
     writeContract({
       address: CONTRACT_ADDRESS,
       abi: CONTRACT_ABI,
@@ -203,69 +176,63 @@ export default function Navbar() {
     });
   };
 
-  const handleEditName = () => {
-    setNewName(displayName);
-    setIsEditingName(true);
-  };
-
   return (
-    <nav className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white shadow-lg">
+    <nav className="bg-black border-b-2 border-purple-600 sticky top-0 z-50">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex items-center justify-between h-20">
           {/* Logo */}
-          <Link to="/" className="text-2xl sm:text-3xl font-bold hover:text-blue-200 transition-colors flex-shrink-0">
-            🚀 MonadFeed
+          <Link to="/" className="flex items-center gap-3 group">
+            <div className="w-12 h-12 bg-purple-600 rounded-lg flex items-center justify-center border-2 border-purple-500 transform group-hover:scale-110 transition-transform duration-300">
+              <Rocket className="w-6 h-6 text-white" />
+            </div>
+            <span className="text-2xl font-black text-white uppercase tracking-wide">
+              MonadFeed
+            </span>
           </Link>
           
           {/* Mobile menu button */}
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="md:hidden inline-flex items-center justify-center p-2 rounded-md hover:bg-white/10 focus:outline-none"
+            className="lg:hidden p-2 rounded-lg bg-purple-950 border-2 border-purple-800 hover:border-purple-600 transition-colors"
           >
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              {isMobileMenuOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
+            {isMobileMenuOpen ? (
+              <X className="h-6 w-6 text-purple-400" />
+            ) : (
+              <Menu className="h-6 w-6 text-purple-400" />
+            )}
           </button>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center gap-3 lg:gap-4">
+          <div className="hidden lg:flex items-center gap-4 xl:gap-6">
             <Link 
               to="/" 
-              className="hover:text-blue-200 transition-colors font-medium text-sm lg:text-base"
+              className="relative text-white hover:text-purple-400 transition-colors font-bold uppercase text-sm tracking-wide group"
             >
               Home
+              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-purple-600 to-purple-600 group-hover:w-full transition-all duration-300"></span>
             </Link>
             <Link 
               to="/curated" 
-              className="hover:text-blue-200 transition-colors font-medium text-sm lg:text-base whitespace-nowrap"
+              className="relative text-white hover:text-purple-400 transition-colors font-bold uppercase text-sm tracking-wide group"
             >
               Curated Articles
+              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-purple-600 to-purple-600 group-hover:w-full transition-all duration-300"></span>
             </Link>
             
             {isConnected && (
-              <div className="bg-yellow-500 text-gray-900 px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg font-bold text-sm lg:text-base whitespace-nowrap">
-                ⭐ {userPoints} Points
+              <div className="bg-purple-950 border-2 border-purple-800 px-4 py-2 rounded-lg">
+                <span className="text-white font-bold flex items-center gap-2 uppercase text-sm">
+                  <Star className="w-4 h-4 text-white" />
+                  {userPoints} Points
+                </span>
               </div>
             )}
 
             {isConnected && (
-              <div className="flex gap-2 items-center">
-                {displayName && !isEditingName ? (
-                  <div className="flex items-center gap-2 bg-white/20 px-3 py-2 rounded-lg">
-                    <span className="font-medium text-sm lg:text-base">{displayName}</span>
-                    <button
-                      onClick={handleEditName}
-                      className="text-blue-200 hover:text-white transition-colors"
-                      title="Edit name"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                      </svg>
-                    </button>
+              <div className="flex gap-3 items-center">
+                {displayName ? (
+                  <div className="flex items-center gap-2 bg-purple-950 border-2 border-purple-800 px-4 py-2 rounded-lg">
+                    <span className="font-bold text-white uppercase text-sm">{displayName}</span>
                   </div>
                 ) : (
                   <>
@@ -275,13 +242,13 @@ export default function Navbar() {
                       value={newName}
                       onChange={(e) => setNewName(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleSetDisplayName()}
-                      className="px-3 py-2 rounded-lg bg-white/20 text-white placeholder-white/70 text-sm focus:outline-none focus:ring-2 focus:ring-white w-32 lg:w-36"
+                      className="px-4 py-2 rounded-lg bg-purple-950 border-2 border-purple-800 text-white placeholder-purple-500 focus:outline-none focus:border-purple-600 transition-colors w-40 font-bold"
                       disabled={isPending || isConfirming || savingToDb}
                     />
                     <button
                       onClick={handleSetDisplayName}
                       disabled={isPending || isConfirming || savingToDb}
-                      className="bg-purple-600 hover:bg-purple-700 px-3 lg:px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors whitespace-nowrap"
+                      className="bg-purple-600 hover:bg-purple-500 px-5 py-2 rounded-lg font-bold uppercase text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 text-white border-2 border-purple-500 transform hover:scale-105"
                     >
                       {isPending || isConfirming || savingToDb ? "Saving..." : "Save"}
                     </button>
@@ -292,15 +259,15 @@ export default function Navbar() {
             
             <button
               onClick={handleWalletAction}
-              className={`px-4 lg:px-6 py-2 rounded-lg font-medium transition-colors text-sm lg:text-base whitespace-nowrap ${
+              className={`px-6 py-2.5 rounded-lg font-bold uppercase text-sm transition-all duration-300 transform hover:scale-105 border-2 ${
                 isConnected
-                  ? 'bg-green-600 hover:bg-green-700' 
-                  : 'bg-blue-600 hover:bg-blue-700'
+                  ? 'bg-green-600 hover:bg-green-500 text-white border-green-500' 
+                  : 'bg-purple-600 hover:bg-purple-500 text-white border-purple-500 flex items-center gap-2'
               }`}
             >
               {isConnected 
                 ? `${address.substring(0, 6)}...${address.substring(address.length - 4)}` 
-                : '🔗 Connect'
+                : <><Link2 className="w-4 h-4" /> Connect</>
               }
             </button>
           </div>
@@ -308,42 +275,36 @@ export default function Navbar() {
 
         {/* Mobile Navigation */}
         {isMobileMenuOpen && (
-          <div className="md:hidden pb-4 space-y-3">
+          <div className="lg:hidden pb-6 space-y-4">
             <Link 
               to="/" 
               onClick={() => setIsMobileMenuOpen(false)}
-              className="block hover:bg-white/10 px-3 py-2 rounded-md font-medium transition-colors"
+              className="block text-white hover:text-purple-400 px-4 py-3 rounded-lg bg-purple-950 border-2 border-purple-800 hover:border-purple-600 transition-all font-bold uppercase text-sm"
             >
               Home
             </Link>
             <Link 
               to="/curated" 
               onClick={() => setIsMobileMenuOpen(false)}
-              className="block hover:bg-white/10 px-3 py-2 rounded-md font-medium transition-colors"
+              className="block text-white hover:text-purple-400 px-4 py-3 rounded-lg bg-purple-950 border-2 border-purple-800 hover:border-purple-600 transition-all font-bold uppercase text-sm"
             >
               Curated Articles
             </Link>
             
             {isConnected && (
-              <div className="bg-yellow-500 text-gray-900 px-4 py-2 rounded-lg font-bold inline-block">
-                ⭐ {userPoints} Points
+              <div className="bg-purple-950 border-2 border-purple-800 px-4 py-3 rounded-lg mx-4">
+                <span className="text-white font-bold flex items-center gap-2 uppercase text-sm">
+                  <Star className="w-5 h-5 text-purple-400" />
+                  {userPoints} Points
+                </span>
               </div>
             )}
 
             {isConnected && (
-              <div className="space-y-2">
-                {displayName && !isEditingName ? (
-                  <div className="flex items-center gap-2 bg-white/20 px-3 py-2 rounded-lg">
-                    <span className="font-medium flex-1">{displayName}</span>
-                    <button
-                      onClick={handleEditName}
-                      className="text-blue-200 hover:text-white transition-colors p-1"
-                      title="Edit name"
-                    >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                      </svg>
-                    </button>
+              <div className="space-y-3 px-4">
+                {displayName ? (
+                  <div className="flex items-center gap-2 bg-purple-950 border-2 border-purple-800 px-4 py-3 rounded-lg">
+                    <span className="font-bold text-purple-300 flex-1 uppercase text-sm">{displayName}</span>
                   </div>
                 ) : (
                   <div className="flex gap-2">
@@ -353,15 +314,15 @@ export default function Navbar() {
                       value={newName}
                       onChange={(e) => setNewName(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleSetDisplayName()}
-                      className="flex-1 px-3 py-2 rounded-lg bg-white/20 text-white placeholder-white/70 text-sm focus:outline-none focus:ring-2 focus:ring-white"
+                      className="flex-1 px-4 py-3 rounded-lg bg-purple-950 border-2 border-purple-800 text-white placeholder-purple-500 focus:outline-none focus:border-purple-600 transition-colors font-bold"
                       disabled={isPending || isConfirming || savingToDb}
                     />
                     <button
                       onClick={handleSetDisplayName}
                       disabled={isPending || isConfirming || savingToDb}
-                      className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+                      className="bg-purple-600 border-2 border-purple-500 px-5 py-3 rounded-lg font-bold uppercase text-sm disabled:opacity-50 transition-all text-white"
                     >
-                      {isPending || isConfirming || savingToDb ? "Saving..." : "Save"}
+                      {isPending || isConfirming || savingToDb ? "..." : "Save"}
                     </button>
                   </div>
                 )}
@@ -370,15 +331,15 @@ export default function Navbar() {
             
             <button
               onClick={handleWalletAction}
-              className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${
+              className={`w-full mx-4 px-6 py-3 rounded-lg font-bold uppercase text-sm transition-all border-2 flex items-center justify-center gap-2 ${
                 isConnected
-                  ? 'bg-green-600 hover:bg-green-700' 
-                  : 'bg-blue-600 hover:bg-blue-700'
+                  ? 'bg-green-600 text-white border-green-500' 
+                  : 'bg-purple-600 text-white border-purple-500'
               }`}
             >
               {isConnected 
                 ? `${address.substring(0, 6)}...${address.substring(address.length - 4)}` 
-                : '🔗 Connect Wallet'
+                : <><Link2 className="w-4 h-4" /> Connect Wallet</>
               }
             </button>
           </div>

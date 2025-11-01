@@ -16,10 +16,9 @@ import { CONTRACT_ABI, CONTRACT_ADDRESS, monadTestnet } from "../wagmiConfig";
 import { decodeEventLog } from "viem";
 
 export default function ArticleDetailPage() {
-  const { id } = useParams(); // MongoDB Article ID
+  const { id } = useParams();
   const navigate = useNavigate();
   
-  // --- Zustand Store ---
   const { 
     selectedArticle: article, 
     loadArticle, 
@@ -30,25 +29,20 @@ export default function ArticleDetailPage() {
     syncCommentUpvotesDB
   } = useArticleStore();
   
-  // --- Local State ---
   const [commentText, setCommentText] = useState("");
   const [replyText, setReplyText] = useState("");
   const [replyingTo, setReplyingTo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [pendingCommentData, setPendingCommentData] = useState(null); // Store comment data between prepare and confirmation
+  const [pendingCommentData, setPendingCommentData] = useState(null);
 
-  // --- Wagmi Hooks ---
   const { address, isConnected, chainId } = useAccount();
   const { switchChain } = useSwitchChain();
 
-  // --- ADD THE FOLLOWING BLOCK ---
-  // Listener for new comments on the blockchain
   useWatchContractEvent({
     address: CONTRACT_ADDRESS,
     abi: CONTRACT_ABI,
     eventName: 'CommentPosted',
-    // Only listen if the article is on-chain
     enabled: !!article?.articleId, 
     onLogs(logs) {
       for (const log of logs) {
@@ -59,22 +53,17 @@ export default function ArticleDetailPage() {
             topics: log.topics 
           });
 
-          // Check if the event is for the article we are currently viewing
           if (article?.articleId && event.args.articleId === BigInt(article.articleId)) {
-            // Reload the article data (including comments) from your fast MongoDB cache
             loadArticle(id); 
-            toast.success("New comment detected on-chain!");
+            toast.success("New comment detected!");
           }
         } catch (decodeError) {
-          // Ignore non-CommentPosted logs
           console.log("Skipping log:", decodeError);
         }
       }
     },
   });
-// --- END OF NEW BLOCK ---
   
-  // Separate write contracts for upvotes and comments
   const { 
     data: voteHash, 
     isPending: isVoting, 
@@ -89,7 +78,6 @@ export default function ArticleDetailPage() {
     error: commentError 
   } = useWriteContract();
 
-  // Transaction receipts
   const { 
     isLoading: isVoteConfirming, 
     isSuccess: isVoteConfirmed, 
@@ -102,8 +90,6 @@ export default function ArticleDetailPage() {
     data: commentReceipt 
   } = useWaitForTransactionReceipt({ hash: commentHash });
 
-  // --- Read Contract Data ---
-  // Check if user has upvoted this article
   const { data: hasUpvotedArticle, refetch: refetchHasUpvotedArticle } = useReadContract({
     abi: CONTRACT_ABI,
     address: CONTRACT_ADDRESS,
@@ -112,7 +98,6 @@ export default function ArticleDetailPage() {
     enabled: isConnected && !!article?.articleId,
   });
 
-  // Get user's display name
   const { data: userDisplayName } = useReadContract({
     abi: CONTRACT_ABI,
     address: CONTRACT_ADDRESS,
@@ -121,7 +106,6 @@ export default function ArticleDetailPage() {
     enabled: isConnected && !!address,
   });
 
-  // --- Load Article on Mount ---
   useEffect(() => {
     const fetchArticle = async () => {
       try {
@@ -138,11 +122,9 @@ export default function ArticleDetailPage() {
     fetchArticle();
   }, [id, loadArticle]);
 
-  // --- Helper: Check if user can upvote article ---
   const isCurator = isConnected && article?.curator?.toLowerCase() === address?.toLowerCase();
   const canUpvoteArticle = isConnected && !isCurator && !hasUpvotedArticle;
 
-  // --- Helper: Switch network if needed ---
   const callContract = (writeFn, config, toastId) => {
     if (chainId !== monadTestnet.id) {
       toast.loading("Switching to Monad Testnet...", { id: toastId });
@@ -161,7 +143,6 @@ export default function ArticleDetailPage() {
     }
   };
 
-  // --- Handler: Upvote Article ---
   const handleUpvoteArticle = async () => {
     if (!canUpvoteArticle) {
       if (!isConnected) toast.error("Please connect wallet");
@@ -180,8 +161,7 @@ export default function ArticleDetailPage() {
     }, toastId);
   };
 
-  // --- Handler: Post Comment ---
-  const handleComment = async (e) => {
+    const handleComment = async (e) => {
     e.preventDefault();
     
     if (!commentText.trim()) {
@@ -197,19 +177,16 @@ export default function ArticleDetailPage() {
     const toastId = toast.loading('Preparing comment...');
     
     try {
-      // Step 1: Save to DB and upload to IPFS
       const { commentMongoId, onChainArticleId, ipfsHash } = await prepareCommentForChain({
-        articleId: article.id, // MongoDB ID
+        articleId: article.id,
         articleUrl: article.articleUrl,
         content: commentText.trim(),
         author: address,
-        authorName: userDisplayName || `${address.substring(0, 6)}...${address.substring(38)}`
+        authorName: userDisplayName || (address ? `${address.substring(0, 6)}...${address.substring(38)}` : '')
       });
 
-      // Store for later use after transaction confirms
       setPendingCommentData({ commentMongoId, ipfsHash });
       
-      // Step 2: Submit to blockchain
       toast.loading('Please confirm in wallet...', { id: toastId });
       callContract(writeComment, {
         address: CONTRACT_ADDRESS,
@@ -224,7 +201,6 @@ export default function ArticleDetailPage() {
     }
   };
 
-  // --- Handler: Post Reply ---
   const handleReply = async (parentComment) => {
     if (!replyText.trim()) {
       toast.error("Please enter a reply");
@@ -239,19 +215,17 @@ export default function ArticleDetailPage() {
     const toastId = toast.loading('Preparing reply...');
     
     try {
-      // Step 1: Save to DB and upload to IPFS
       const { commentMongoId, onChainArticleId, ipfsHash } = await prepareCommentForChain({
         articleId: article.id,
         articleUrl: article.articleUrl,
         content: replyText.trim(),
         author: address,
-        authorName: userDisplayName || `${address.substring(0, 6)}...${address.substring(38)}`,
-        parentId: parentComment.id // MongoDB parent ID
+        authorName: userDisplayName || (address ? `${address.substring(0, 6)}...${address.substring(38)}` : ''),
+        parentId: parentComment.id
       });
 
       setPendingCommentData({ commentMongoId, ipfsHash });
       
-      // Step 2: Submit to blockchain
       toast.loading('Please confirm in wallet...', { id: toastId });
       callContract(writeComment, {
         address: CONTRACT_ADDRESS,
@@ -266,14 +240,12 @@ export default function ArticleDetailPage() {
     }
   };
 
-  // --- Handler: Upvote Comment ---
   const handleUpvoteComment = async (comment) => {
     if (!isConnected) {
       toast.error("Please connect wallet");
       return;
     }
     
-    // Check if user already upvoted (from DB data)
     if (comment.upvotedBy?.some(vote => 
       typeof vote === 'string' ? vote === address : vote.address?.toLowerCase() === address?.toLowerCase()
     )) {
@@ -281,7 +253,6 @@ export default function ArticleDetailPage() {
       return;
     }
     
-    // Check if user is the commenter
     if (comment.author?.toLowerCase() === address?.toLowerCase()) {
       toast.error("Cannot upvote your own comment");
       return;
@@ -302,17 +273,15 @@ export default function ArticleDetailPage() {
     }, toastId);
   };
   
-  // --- Effect: Handle Vote Confirmation ---
   useEffect(() => {
     if (isVoteConfirming) {
-      toast.loading('Confirming vote on blockchain...', { id: "voteToast" });
+      toast.loading('Confirming vote...', { id: "voteToast" });
     }
     
     if (isVoteConfirmed && voteReceipt) {
       toast.success('Vote confirmed!', { id: "voteToast" });
       
       try {
-        // Parse transaction logs
         for (const log of voteReceipt.logs) {
           try {
             const event = decodeEventLog({ 
@@ -336,13 +305,11 @@ export default function ArticleDetailPage() {
               const awardedUser = event.args.user.toLowerCase();
               const totalPoints = Number(event.args.totalPoints);
               
-              // Update points if it's for the current user
               if (awardedUser === address?.toLowerCase()) {
                 setUserPoints(totalPoints);
               }
             }
           } catch (decodeError) {
-            // Skip logs that aren't from our contract
             console.log("Skipping log:", decodeError);
           }
         }
@@ -350,25 +317,22 @@ export default function ArticleDetailPage() {
         console.error("Error parsing vote logs:", err);
       }
       
-      // Refetch article and upvote status
       loadArticle(id);
       refetchHasUpvotedArticle();
     }
   }, [isVoteConfirming, isVoteConfirmed, voteReceipt, address, id]);
   
-  // --- Effect: Handle Comment Confirmation ---
   useEffect(() => {
     if (isCommentConfirming) {
-      toast.loading('Confirming comment on blockchain...', { id: "commentToast" });
+      toast.loading('Confirming comment...', { id: "commentToast" });
     }
     
     if (isCommentConfirmed && commentReceipt) {
-      toast.success('Comment posted on-chain!', { id: "commentToast" });
+      toast.success('Comment posted!', { id: "commentToast" });
       
       let onChainCommentId = null;
       
       try {
-        // Extract comment ID from event logs
         for (const log of commentReceipt.logs) {
           try {
             const event = decodeEventLog({ 
@@ -389,7 +353,6 @@ export default function ArticleDetailPage() {
         console.error("Error parsing comment logs:", err);
       }
       
-      // Update DB with on-chain comment ID
       if (onChainCommentId && pendingCommentData?.commentMongoId) {
         markCommentOnChainDB(
           pendingCommentData.commentMongoId, 
@@ -398,18 +361,15 @@ export default function ArticleDetailPage() {
         );
       }
       
-      // Clear form and state
       setCommentText("");
       setReplyText("");
       setReplyingTo(null);
       setPendingCommentData(null);
       
-      // Reload article to show new comment
       loadArticle(id);
     }
   }, [isCommentConfirming, isCommentConfirmed, commentReceipt, pendingCommentData, id]);
 
-  // --- Effect: Handle Errors ---
   useEffect(() => {
     if (voteError) {
       toast.error(voteError.message || "Voting failed");
@@ -424,7 +384,6 @@ export default function ArticleDetailPage() {
     }
   }, [commentError]);
 
-  // --- Render Helper: Comment Component ---
   const renderComment = (comment, isReply = false) => {
     const hasUpvoted = comment.upvotedBy?.some(vote => 
       typeof vote === 'string' 
@@ -438,27 +397,33 @@ export default function ArticleDetailPage() {
     return (
       <div 
         key={comment.id} 
-        className={`${isReply ? 'ml-12 mt-3' : 'mb-4'} bg-gray-50 border border-gray-200 rounded-lg p-4`}
+        className={`${isReply ? 'ml-8 md:ml-12 mt-3' : 'mb-4'} bg-purple-950 border-2 border-purple-800 rounded-lg p-4 hover:border-purple-600 transition-all duration-300`}
       >
-        <div className="flex items-start justify-between mb-2">
-          <div>
-            <span className="font-medium text-gray-700">
-              {comment.authorName || 'Anonymous'}
-            </span>
-            {comment.author && (
-              <span className="ml-2 text-xs text-gray-500">
-                ({comment.author.substring(0, 6)}...{comment.author.substring(38)})
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 bg-purple-600 rounded-lg flex items-center justify-center text-white text-sm font-bold border-2 border-purple-500">
+              {(comment.authorName || 'A')[0].toUpperCase()}
+            </div>
+            <div>
+              <span className="font-bold text-white text-sm block">
+                {comment.authorName || 'Anonymous'}
               </span>
-            )}
+              {comment.author && (
+                <span className="text-xs text-purple-400 font-mono">
+                  {comment.author.substring(0, 6)}...{comment.author.substring(38)}
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-3">
+          
+          <div className="flex items-center gap-2">
             <button
               onClick={() => handleUpvoteComment(comment)}
               disabled={!canUpvote}
-              className={`flex items-center gap-1 text-sm ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-300 border-2 ${
                 !canUpvote 
-                  ? 'text-gray-400 cursor-not-allowed' 
-                  : 'text-blue-600 hover:text-blue-800'
+                  ? 'bg-black border-purple-900 text-white cursor-not-allowed' 
+                  : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-500 transform hover:scale-105'
               }`}
               title={
                 !isConnected ? "Connect wallet to upvote" :
@@ -468,70 +433,69 @@ export default function ArticleDetailPage() {
                 "Upvote this comment"
               }
             >
-              👍 {comment.upvotes}
+              <span className="text-sm">👍</span>
+              <span>{comment.upvotes}</span>
             </button>
-            {comment.onChain && (
-              <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">
-                ⛓️ On-chain
+            
+            {comment.onChain ? (
+              <span className="bg-purple-600 border-2 border-purple-500 text-white px-2.5 py-1 rounded-lg text-xs font-bold">
+                ⛓ ON-CHAIN
               </span>
-            )}
-            {!comment.onChain && (
-              <span className="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">
-                ⏳ Pending
+            ) : (
+              <span className="bg-yellow-900 border-2 border-yellow-600 text-yellow-400 px-2.5 py-1 rounded-lg text-xs font-bold">
+                ⏳ PENDING
               </span>
             )}
           </div>
         </div>
         
-        <p className="text-gray-700 mb-2">{comment.content}</p>
+        <p className="text-white mb-3 leading-relaxed text-sm">{comment.content}</p>
         
-        <div className="flex items-center gap-4 text-xs text-gray-400">
+        <div className="flex items-center gap-4 text-xs text-white font-semibold">
           <span>{new Date(comment.createdAt).toLocaleString()}</span>
           {!isReply && isConnected && (
             <button
               onClick={() => setReplyingTo(comment.id)}
-              className="text-blue-600 hover:text-blue-800"
+              className="text-white hover:text-purple-300 font-bold transition-colors uppercase"
             >
-              Reply
+              💬 Reply
             </button>
           )}
         </div>
         
-        {/* Reply Form */}
         {replyingTo === comment.id && (
-          <div className="mt-3 bg-white p-3 rounded border border-gray-300">
+          <div className="mt-4 bg-black border-2 border-purple-700 p-4 rounded-lg">
             <textarea
-              className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-blue-500 resize-none"
-              rows={2}
+              className="w-full bg-purple-950 border-2 border-purple-700 p-3 rounded-lg text-white text-sm placeholder-purple-500 focus:outline-none focus:border-purple-500 resize-none transition-colors"
+              rows={3}
               value={replyText}
               onChange={e => setReplyText(e.target.value)}
               placeholder="Write your reply..."
               disabled={isCommenting || isCommentConfirming}
             />
-            <div className="flex gap-2 mt-2">
+            <div className="flex gap-2 mt-3">
               <button
                 onClick={() => handleReply(comment)}
-                className="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700 text-sm disabled:bg-gray-400"
+                className="bg-purple-600 hover:bg-purple-500 text-white px-5 py-2 rounded-lg text-sm font-bold disabled:opacity-50 border-2 border-purple-500 transition-all duration-300 transform hover:scale-105"
                 disabled={isCommenting || isCommentConfirming || !replyText.trim()}
               >
-                {isCommenting || isCommentConfirming ? '⏳ Posting...' : 'Post Reply'}
+                {isCommenting || isCommentConfirming ? '⏳ POSTING...' : '✉ POST REPLY'}
               </button>
               <button
                 onClick={() => {
                   setReplyingTo(null);
                   setReplyText("");
                 }}
-                className="bg-gray-300 text-gray-700 px-4 py-1 rounded hover:bg-gray-400 text-sm"
+                className="bg-black border-2 border-purple-700 text-white hover:bg-purple-950 px-5 py-2 rounded-lg text-sm font-bold transition-all duration-300"
               >
-                Cancel
+                CANCEL
               </button>
             </div>
           </div>
         )}
         
-        {/* Nested Replies */}
         {comment.replies && comment.replies.length > 0 && (
-          <div className="mt-3">
+          <div className="mt-4">
             {comment.replies.map(reply => renderComment(reply, true))}
           </div>
         )}
@@ -539,33 +503,37 @@ export default function ArticleDetailPage() {
     );
   };
 
-  // --- Loading State ---
   if (loading || !article) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-black">
         <Navbar />
-        <div className="container mx-auto px-4 py-12 text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          <p className="text-gray-600 mt-4">Loading article...</p>
+        <div className="container mx-auto px-4 py-32 text-center">
+          <div className="relative inline-block mb-6">
+            <div className="animate-spin rounded-full h-20 w-20 border-4 border-purple-900 border-t-purple-500"></div>
+            <div className="absolute inset-0 rounded-full bg-purple-500 opacity-20 animate-pulse"></div>
+          </div>
+          <p className="text-white text-lg font-bold uppercase">Loading Article...</p>
         </div>
         <Footer />
       </div>
     );
   }
 
-  // --- Error State ---
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-black">
         <Navbar />
-        <div className="container mx-auto px-4 py-12">
-          <div className="bg-red-50 border-2 border-red-300 text-red-800 px-6 py-4 rounded-lg max-w-2xl mx-auto">
-            <p className="font-medium">❌ {error || 'Article not found'}</p>
+        <div className="container mx-auto px-4 py-16">
+          <div className="bg-purple-950 border-2 border-red-600 rounded-lg px-8 py-12 max-w-2xl mx-auto text-center">
+            <div className="w-16 h-16 bg-red-900 border-2 border-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-3xl">❌</span>
+            </div>
+            <p className="font-bold text-red-400 text-xl mb-6 uppercase">{error || 'Article not found'}</p>
             <button 
               onClick={() => navigate('/curated')}
-              className="mt-4 bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700"
+              className="bg-purple-600 hover:bg-purple-500 text-white px-8 py-3 rounded-lg font-bold text-sm border-2 border-purple-500 transition-all duration-300 transform hover:scale-105 uppercase"
             >
-              Back to Articles
+              ← Back to Articles
             </button>
           </div>
         </div>
@@ -574,201 +542,222 @@ export default function ArticleDetailPage() {
     );
   }
 
-  // --- Main Render ---
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-black">
       <Navbar />
       
       <main className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
-          {/* Back Button */}
+        <div className="max-w-5xl mx-auto">
           <button 
             onClick={() => navigate('/curated')}
-            className="mb-4 text-blue-600 hover:text-blue-800 flex items-center gap-2"
+            className="mb-6 flex items-center gap-2 text-purple-400 hover:text-purple-300 transition-colors group text-sm font-bold uppercase"
           >
-            ← Back to Articles
+            <svg className="w-5 h-5 transform group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
+            </svg>
+            <span>Back to Articles</span>
           </button>
           
-          {/* Article Card */}
-          <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+          <div className="bg-black border-2 border-purple-600 rounded-lg overflow-hidden">
             {article.imageUrl && (
-              <img 
-                src={article.imageUrl} 
-                alt={article.title}
-                className="w-full h-96 object-cover" 
-              />
+              <div className="relative h-96 overflow-hidden border-b-2 border-purple-600">
+                <img 
+                  src={article.imageUrl} 
+                  alt={article.title}
+                  className="w-full h-full object-cover" 
+                />
+                <div className="absolute inset-0 bg-black opacity-40"></div>
+              </div>
             )}
             
-            <div className="p-8">
-              <h1 className="text-4xl font-bold mb-4 text-gray-900">
+            <div className="p-6 md:p-10">
+              <h1 className="text-3xl md:text-4xl font-bold mb-6 text-white leading-tight uppercase tracking-wide">
                 {article.title}
               </h1>
               
-              {/* Curator Info */}
               {article.curator && (
-                <div className="mb-4 text-sm text-gray-600">
-                  Curated by: <span className="font-medium">{article.curatorName || `${article.curator.substring(0, 6)}...${article.curator.substring(38)}`}</span>
+                <div className="flex items-center gap-3 mb-8 bg-purple-950 border-2 border-purple-800 rounded-lg p-4 w-fit">
+                  <div className="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center text-white text-sm font-bold border-2 border-purple-500">
+                    {(article.curatorName || 'C')[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <span className="text-purple-400 font-bold text-xs block uppercase">Curated By</span>
+                    <span className="font-bold text-white text-sm">{`article.curatorName || ${article.curator.substring(0, 6)}...${article.curator.substring(38)}`}</span>
+                  </div>
                 </div>
               )}
               
-              {/* Short Summary */}
-              <div className="bg-blue-50 border-l-4 border-blue-600 p-4 mb-6">
-                <h3 className="font-bold text-blue-900 mb-2">📋 Quick Summary</h3>
-                <p className="text-lg text-blue-800 leading-relaxed">
+              <div className="bg-purple-950 border-2 border-purple-800 rounded-lg p-6 mb-8">
+                <h3 className="font-bold text-purple-400 mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">
+                  <span>📋</span>
+                  <span>Quick Summary</span>
+                </h3>
+                <p className="text-white leading-relaxed text-sm">
                   {article.summary}
                 </p>
               </div>
               
-              {/* Detailed Summary */}
               {article.detailedSummary && (
-                <div className="prose prose-lg max-w-none mb-6">
-                  <h2 className="text-2xl font-bold mb-4">📰 Detailed Analysis</h2>
-                  <p className="text-gray-700 leading-relaxed whitespace-pre-line">
+                <div className="mb-8">
+                  <h2 className="text-2xl font-bold mb-5 text-white flex items-center gap-3 uppercase tracking-wide border-l-4 border-purple-600 pl-4">
+                    <span>📰</span>
+                    <span>Detailed Analysis</span>
+                  </h2>
+                  <p className="text-white leading-relaxed whitespace-pre-line text-sm bg-purple-950 border-2 border-purple-800 rounded-lg p-6">
                     {article.detailedSummary}
                   </p>
                 </div>
               )}
               
-              {/* Key Points */}
               {article.keyPoints && article.keyPoints.length > 0 && (
-                <div className="mb-6">
-                  <h3 className="text-xl font-bold mb-3">🔑 Key Takeaways</h3>
-                  <ul className="list-disc list-inside space-y-2 text-gray-700">
+                <div className="mb-8">
+                  <h3 className="text-xl font-bold mb-5 text-white flex items-center gap-3 uppercase tracking-wide border-l-4 border-purple-600 pl-4">
+                    <span>🔑</span>
+                    <span>Key Takeaways</span>
+                  </h3>
+                  <div className="space-y-3">
                     {article.keyPoints.map((point, idx) => (
-                      <li key={idx}>{point}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              
-              {/* Statistics */}
-              {article.statistics && article.statistics.length > 0 && (
-                <div className="mb-6">
-                  <h3 className="text-xl font-bold mb-3">📊 Key Statistics</h3>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    {article.statistics.map((stat, idx) => (
-                      <div key={idx} className="bg-gray-100 p-4 rounded-lg">
-                        <div className="text-3xl font-bold text-blue-600">{stat.value}</div>
-                        <div className="text-sm text-gray-600">{stat.label}</div>
+                      <div key={idx} className="flex items-start gap-3 bg-purple-950 border-2 border-purple-800 rounded-lg p-5 hover:border-purple-600 transition-all duration-300">
+                        <span className="bg-purple-600 border-2 border-purple-500 text-white font-bold text-sm w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0">{idx + 1}</span>
+                        <span className="text-white flex-1 text-sm leading-relaxed">{point}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
               
-              {/* Sections */}
-              {article.sections && article.sections.length > 0 && (
-                <div className="mb-6">
-                  {article.sections.map((section, idx) => (
-                    <div key={idx} className="mb-4">
-                      <h3 className="text-xl font-bold mb-2">{section.heading}</h3>
-                      <p className="text-gray-700 leading-relaxed">{section.content}</p>
-                    </div>
-                  ))}
+              {article.statistics && article.statistics.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-xl font-bold mb-5 text-white flex items-center gap-3 uppercase tracking-wide border-l-4 border-purple-600 pl-4">
+                    <span>📊</span>
+                    <span>Key Statistics</span>
+                  </h3>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    {article.statistics.map((stat, idx) => (
+                      <div key={idx} className="bg-purple-950 border-2 border-purple-800 p-6 rounded-lg hover:border-purple-600 transition-all duration-300 transform hover:scale-105">
+                        <div className="text-3xl font-bold text-white mb-2">{stat.value}</div>
+                        <div className="text-xs text-white font-bold uppercase">{stat.label}</div>
+                        {stat.context && (
+                          <div className="text-xs text-purple-400 mt-2">{stat.context}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               
-              {/* Full Content */}
               {article.fullContent && (
-                <div className="prose max-w-none mb-6">
-                  <h3 className="text-xl font-bold mb-3">📖 Full Article Content</h3>
-                  <div className="text-gray-700 leading-relaxed whitespace-pre-line">
+                <div className="mb-8">
+                  <h3 className="text-xl font-bold mb-5 text-white flex items-center gap-3 uppercase tracking-wide border-l-4 border-purple-600 pl-4">
+                    <span>📖</span>
+                    <span>Condensed Content</span>
+                  </h3>
+                  <div className="text-white leading-relaxed whitespace-pre-line text-sm bg-purple-950 border-2 border-purple-800 rounded-lg p-6">
                     {article.fullContent}
                   </div>
                 </div>
               )}
               
-              {/* On-Chain Info */}
               {article.onChain && (
-                <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 mb-6">
-                  <h3 className="font-bold text-green-800 mb-2">⛓️ Blockchain Information</h3>
-                  <div className="text-sm text-green-700 space-y-1">
-                    <p><strong>Curator:</strong> {article.curatorName || article.curator}</p>
-                    <p><strong>IPFS Hash:</strong> <code className="bg-green-100 px-2 py-1 rounded">{article.ipfsHash}</code></p>
-                    <p><strong>On-chain ID:</strong> #{article.articleId}</p>
+                <div className="bg-purple-950 border-2 border-purple-800 rounded-lg p-6 mb-8">
+                  <h3 className="font-bold text-purple-400 mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">
+                    <span>⛓</span>
+                    <span>Blockchain Information</span>
+                  </h3>
+                  <div className="text-sm text-white space-y-2 font-bold">
+                    <p><span className="text-white">ON-CHAIN ID:</span> #{article.articleId}</p>
                   </div>
                 </div>
               )}
               
-              {/* Original Link */}
+              
               <a
                 href={article.articleUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 mb-6"
+                className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-8 py-3 rounded-lg font-bold mb-10 transition-all duration-300 border-2 border-purple-500 text-sm uppercase transform hover:scale-105"
               >
-                📖 Read Full Original Article
+                <span>📖</span>
+                <span>Read Original Article</span>
               </a>
               
-              {/* Upvote Section */}
-              <div className="border-t-2 border-gray-200 pt-6 mb-8">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-3xl font-bold text-gray-900">
+              <div className="border-t-2 border-purple-900 pt-8 mb-10">
+                <div className="flex items-center justify-between flex-wrap gap-6 bg-purple-950 border-2 border-purple-800 rounded-lg p-6">
+                  <div className="text-center">
+                    <span className="text-5xl font-bold text-white block mb-2">
                       {article.upvotes}
                     </span>
-                    <span className="text-gray-600 ml-2">upvotes</span>
+                    <span className="text-white text-sm font-bold uppercase tracking-wider">Upvotes</span>
                   </div>
                   
                   <button 
-                    className={`px-8 py-3 rounded-lg font-medium transition-colors ${
+                    className={`px-8 py-3 rounded-lg font-bold transition-all duration-300 text-sm uppercase border-2 ${
                       canUpvoteArticle && !isVoting && !isVoteConfirming
-                        ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        ? 'bg-purple-600 border-purple-500 text-white hover:bg-purple-500 transform hover:scale-105' 
+                        : 'bg-black border-purple-900 text-white cursor-not-allowed'
                     }`}
                     onClick={handleUpvoteArticle}
                     disabled={!canUpvoteArticle || isVoting || isVoteConfirming}
                   >
                     {isVoting || isVoteConfirming ? '⏳ Voting...' : 
-                     canUpvoteArticle ? '👍 Upvote' : 
-                     !isConnected ? 'Connect Wallet' :
-                     isCurator ? 'Your Article' :
-                     hasUpvotedArticle ? '✓ Upvoted' : 'Cannot Upvote'}
+                     canUpvoteArticle ? '👍 Upvote Article' : 
+                     !isConnected ? '🔗 Connect Wallet' :
+                     isCurator ? '✓ Your Article' :
+                     hasUpvotedArticle ? '✓ Already Upvoted' : 'Cannot Upvote'}
                   </button>
                 </div>
               </div>
               
-              {/* Comments Section */}
-              <div className="border-t-2 border-gray-200 pt-8">
-                <h2 className="text-2xl font-bold mb-6">
-                  💬 Comments ({article.comments?.length || 0})
+              <div className="border-t-2 border-purple-900 pt-10">
+                <h2 className="text-2xl font-bold mb-8 text-white flex items-center gap-3 uppercase tracking-wide">
+                  <span>💬</span>
+                  <span>Comments ({article.comments?.length || 0})</span>
                 </h2>
                 
-                {/* Comment Form */}
                 {isConnected ? (
-                  <form onSubmit={handleComment} className="mb-8">
+                  <form onSubmit={handleComment} className="mb-10">
                     <textarea
-                      className="w-full border-2 border-gray-300 p-4 rounded-lg focus:outline-none focus:border-blue-500 resize-none"
+                      className="w-full bg-purple-950 border-2 border-purple-700 p-4 rounded-lg text-white text-sm placeholder-purple-500 focus:outline-none focus:border-purple-500 resize-none transition-colors"
                       rows={4}
                       value={commentText}
                       onChange={e => setCommentText(e.target.value)}
-                      placeholder="Share your thoughts..."
+                      placeholder="Share your thoughts on this article..."
                       disabled={isCommenting || isCommentConfirming}
                     />
                     <button 
                       type="submit"
-                      className="mt-3 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:bg-gray-400 font-medium"
+                      className="mt-4 bg-purple-600 hover:bg-purple-500 text-white px-8 py-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed font-bold transition-all duration-300 text-sm uppercase border-2 border-purple-500 transform hover:scale-105"
                       disabled={isCommenting || isCommentConfirming || !commentText.trim()}
                     >
-                      {isCommenting || isCommentConfirming ? '⏳ Posting...' : '✉️ Post Comment'}
+                      {isCommenting || isCommentConfirming ? '⏳ Posting...' : '✉ Post Comment'}
                     </button>
                   </form>
                 ) : (
-                  <div className="mb-8 bg-yellow-50 border-2 border-yellow-200 rounded-lg p-4">
-                    <p className="text-yellow-800">
-                      🔒 Please connect your wallet to post comments
+                  <div className="mb-10 bg-yellow-900 border-2 border-yellow-600 rounded-lg p-8 text-center">
+                    <div className="w-14 h-14 bg-yellow-800 border-2 border-yellow-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <span className="text-2xl">🔒</span>
+                    </div>
+                    <p className="text-yellow-400 font-bold text-sm uppercase tracking-wide">
+                      Connect Your Wallet to Post Comments
                     </p>
                   </div>
                 )}
                 
-                {/* Comments List */}
                 <div className="space-y-4">
                   {article.comments && article.comments.length > 0 ? (
                     article.comments.map(comment => renderComment(comment))
                   ) : (
-                    <p className="text-gray-500 text-center py-8">
-                      No comments yet. Be the first to comment!
-                    </p>
+                    <div className="text-center py-16 bg-purple-950 border-2 border-purple-800 rounded-lg">
+                      <div className="w-16 h-16 bg-purple-900 border-2 border-purple-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <span className="text-3xl">💭</span>
+                      </div>
+                      <p className="text-white text-sm font-bold uppercase">
+                        No Comments Yet
+                      </p>
+                      <p className="text-white text-xs mt-2">
+                        Be the first to share your thoughts!
+                      </p>
+                    </div>
                   )}
                 </div>
               </div>

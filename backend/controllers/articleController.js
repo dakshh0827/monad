@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { scrapeArticle } from '../services/scraper.js';
-import { summarizeArticle, extractFullContent } from '../services/summarizer.js';
+import { summarizeArticle } from '../services/summarizer.js';
 import { uploadToIPFS } from '../services/ipfs.js';
 
 const prisma = new PrismaClient();
@@ -44,7 +44,6 @@ export const getAllArticles = async (req, res, next) => {
   }
 };
 
-// Get article by ID
 // Get article by ID
 export const getArticleById = async (req, res, next) => {
   try {
@@ -140,32 +139,21 @@ export const scrapeAndSummarize = async (req, res, next) => {
     console.log('🔍 Scraping article:', url);
     const scrapedData = await scrapeArticle(url);
     
-    console.log('🤖 Summarizing article with OpenAI...');
-    const { summary, detailedSummary, cardJson } = await summarizeArticle(scrapedData);
-    
-    let structuredContent = {
-      keyPoints: [],
-      sections: [],
-      statistics: []
-    };
-    
-    if (scrapedData.fullContent) {
-      structuredContent = await extractFullContent(scrapedData.fullContent, scrapedData);
-    }
+    console.log('🤖 Summarizing article...');
+    const summaryData = await summarizeArticle(scrapedData);
     
     res.status(200).json({
       message: 'Article scraped and summarized successfully',
       preview: {
         title: scrapedData.title,
-        summary: summary,
-        detailedSummary: detailedSummary,
-        fullContent: scrapedData.fullContent,
-        keyPoints: structuredContent.keyPoints,
-        sections: structuredContent.sections,
-        statistics: structuredContent.statistics,
+        summary: summaryData.quickSummary,
+        detailedSummary: summaryData.detailedAnalysis,
+        condensedContent: summaryData.condensedContent,
+        keyPoints: summaryData.keyTakeaways,
+        statistics: summaryData.statistics,
         imageUrl: scrapedData.image,
         articleUrl: scrapedData.url,
-        cardJson: cardJson,
+        cardJson: summaryData.cardJson,
         author: scrapedData.author,
         publisher: scrapedData.publisher,
         date: scrapedData.date
@@ -184,9 +172,8 @@ export const prepareArticleForCuration = async (req, res, next) => {
       title, 
       summary, 
       detailedSummary,
-      fullContent,
+      condensedContent,
       keyPoints,
-      sections,
       statistics,
       imageUrl, 
       articleUrl, 
@@ -218,9 +205,8 @@ export const prepareArticleForCuration = async (req, res, next) => {
         title,
         summary,
         detailedSummary: detailedSummary || summary,
-        fullContent: fullContent || '',
+        fullContent: condensedContent || '',
         keyPoints: keyPoints || [],
-        sections: sections || [],
         statistics: statistics || [],
         imageUrl,
         articleUrl,
@@ -385,17 +371,16 @@ export const getAllArticlesIncludingPending = async (req, res, next) => {
   }
 };
 
-// ADD THIS NEW FUNCTION
+// Upload article to IPFS
 export const uploadArticleToIPFS = async (req, res, next) => {
   try {
-    // The article JSON preview is in the request body
     const articleData = req.body; 
     
     if (!articleData || !articleData.title || !articleData.articleUrl) {
       return res.status(400).json({ error: 'Missing article data' });
     }
     
-    console.log(`📤 Uploading "${articleData.title.substring(0, 30)}..." to IPFS...`);
+    console.log(`📤 Uploading ${articleData.title.substring(0, 30)}... to IPFS...`);
     
     const ipfsHash = await uploadToIPFS(articleData);
     
@@ -406,4 +391,3 @@ export const uploadArticleToIPFS = async (req, res, next) => {
     next(error);
   }
 };
-

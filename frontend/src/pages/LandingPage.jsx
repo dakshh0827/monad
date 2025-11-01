@@ -8,6 +8,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchCh
 import { CONTRACT_ABI, CONTRACT_ADDRESS, monadTestnet } from "../wagmiConfig";
 import { decodeEventLog } from "viem";
 import axios from "axios";
+import { Rocket, Search, CheckCircle, X, Target, Gem, Link2, BookOpen, Sparkles, Zap, Link as LinkIcon, Check, Clock, FileText, Newspaper, Key, User, Calendar, Globe, ExternalLink, HourglassIcon, Loader, CheckCircle2, Save } from "lucide-react";
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -17,26 +18,17 @@ export default function LandingPage() {
   const [error, setError] = useState(null);
   const [scrapedPreview, setScrapedPreview] = useState(null);
   const [curatingStep, setCuratingStep] = useState('idle');
-  const [submittedIpfsHash, setSubmittedIpfsHash] = useState(null); // Store hash during submit
+  const [submittedIpfsHash, setSubmittedIpfsHash] = useState(null);
   
   const navigate = useNavigate();
   
-  // --- Wagmi Hooks ---
   const { isConnected, address, chainId } = useAccount();
   const { switchChain } = useSwitchChain();
   const { markArticleOnChainDB } = useArticleStore();
   
-  // Contract write hook for `submitArticle`
   const { data: hash, isPending, writeContract } = useWriteContract();
-  
-  // Transaction receipt hook
-  const { 
-    data: receipt, 
-    isLoading: isConfirming, 
-    isSuccess: isConfirmed 
-  } = useWaitForTransactionReceipt({ hash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
-  // --- Original Scrape Function (Unchanged) ---
   const handleScrape = async (e) => {
     e.preventDefault();
     if (!url.trim()) {
@@ -77,7 +69,6 @@ export default function LandingPage() {
     }
   };
 
-  // --- NEW: Curation Submission Function ---
   const handleCurationSubmit = async () => {
     if (!scrapedPreview) return;
     if (!isConnected) {
@@ -90,26 +81,20 @@ export default function LandingPage() {
     const loadingToast = toast.loading('Uploading article to IPFS...');
     
     try {
-        // Step 1: Upload Article JSON to IPFS
-        const ipfsResponse = await axios.post(`${API_BASE}/articles/upload-ipfs`, scrapedPreview);
-        const { ipfsHash } = ipfsResponse.data;
+      const ipfsResponse = await axios.post(`${API_BASE}/articles/upload-ipfs`, scrapedPreview);
+      const { ipfsHash } = ipfsResponse.data;
 
-        if (!ipfsHash) throw new Error("Failed to get IPFS hash from backend");
+      if (!ipfsHash) throw new Error("Failed to get IPFS hash from backend");
 
-        // --- NEW: STEP 1.5 - Save to DB (Pending State) ---
-        // Use the existing /prepare route to create the DB record
-        await axios.post(`${API_BASE}/articles/prepare`, {
-            ...scrapedPreview, // Pass all data
-            ipfsHash // Include the hash you just got
-          });
-        // --------------------------------------------------
+      await axios.post(`${API_BASE}/articles/prepare`, {
+        ...scrapedPreview,
+        ipfsHash
+      });
 
-        setSubmittedIpfsHash(ipfsHash); // Save hash to state
+      setSubmittedIpfsHash(ipfsHash);
+      toast.loading('Please confirm in your wallet...', { id: loadingToast });
+      setCuratingStep('signing');
 
-        toast.loading('Please confirm in your wallet...', { id: loadingToast });
-        setCuratingStep('signing');
-
-      // Step 2: Check network and call contract
       const submitToContract = () => {
         writeContract({
           address: CONTRACT_ADDRESS,
@@ -142,7 +127,6 @@ export default function LandingPage() {
     }
   };
 
-  // --- Effect to handle the transaction receipt ---
   useEffect(() => {
     if (isConfirming) {
       setCuratingStep('confirming');
@@ -156,7 +140,6 @@ export default function LandingPage() {
       let articleId = null;
       try {
         for (const log of receipt.logs) {
-          // Find the correct event log
           const event = decodeEventLog({
             abi: CONTRACT_ABI,
             data: log.data,
@@ -172,11 +155,10 @@ export default function LandingPage() {
       }
 
       if (articleId && submittedIpfsHash && address) {
-        // Step 3: Save to our backend DB
         markArticleOnChainDB(
           scrapedPreview.articleUrl, 
           articleId, 
-          address, // curator
+          address,
           submittedIpfsHash
         ).catch(err => {
           toast.error("Failed to sync with DB. Please refresh.");
@@ -185,13 +167,11 @@ export default function LandingPage() {
         toast.error("Failed to get ArticleID from transaction");
       }
       
-      // Navigate away
       setTimeout(() => {
         navigate('/curated');
       }, 1500);
     }
     
-    // Handle user rejection
     if (isPending === false && isConfirming === false && loading) {
        if (curatingStep === 'signing') {
           setLoading(false);
@@ -211,64 +191,66 @@ export default function LandingPage() {
     toast.success('Form cleared');
   };
 
-  // --- Button Text Logic ---
   const getButtonText = () => {
-    if (curatingStep === 'preparing') return '⏳ Uploading...';
-    if (curatingStep === 'signing') return '✍️ Signing...';
-    if (isPending || curatingStep === 'confirming') return '⛓️ Confirming...';
-    if (curatingStep === 'done') return '✅ Curated!';
-    return '💾 Curate & Sign';
+    if (curatingStep === 'preparing') return <><Clock className="w-4 h-4 inline" /> Uploading...</>;
+    if (curatingStep === 'signing') return <><FileText className="w-4 h-4 inline" /> Signing...</>;
+    if (isPending || curatingStep === 'confirming') return <><Link2 className="w-4 h-4 inline" /> Confirming...</>;
+    if (curatingStep === 'done') return <><CheckCircle2 className="w-4 h-4 inline" /> Curated!</>;
+    return <><Save className="w-4 h-4 inline" /> Curate & Sign</>;
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-black">
       <Navbar />
       
-      <main className="container mx-auto px-4 py-12">
-        <div className="max-w-4xl mx-auto">
+      <main className="container mx-auto px-4 py-8">
+        <div className="max-w-7xl mx-auto">
           {/* Hero Section */}
-          <div className="text-center mb-12">
-            <h1 className="text-5xl font-bold mb-4 text-gray-900">
-              MonadFeed 🚀
+          <div className="text-center mb-10">
+            <h1 className="text-5xl md:text-5xl font-black mb-6 text-white uppercase tracking-wide leading-tight">
+              Decentralized News Curation
             </h1>
-            <p className="text-gray-700 text-xl mb-2">
-              Decentralized Web3 News Curation Platform
+            <p className="text-purple-400 text-xl mb-4 leading-relaxed font-bold">
+              Curate articles • Earn rewards • Build reputation on-chain
             </p>
-            <p className="text-gray-600 text-lg">
-              Curate articles • Earn rewards • Build reputation
-            </p>
-          </div>
-          
-          {/* Info Banner */}
-          <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-4 mb-6 text-center">
-            <p className="text-blue-800 font-medium mb-2">
-              ⚡ Fast AI-powered summarization with OpenAI GPT-4
-            </p>
-            <p className="text-blue-600 text-sm">
-              No wallet needed for testing • Blockchain integration coming soon
-            </p>
+            <div className="flex flex-wrap justify-center gap-4 text-sm">
+              <div className="bg-purple-950 border-2 border-purple-800 px-4 py-2 rounded-lg">
+                <span className="text-white font-bold"><Zap className="w-4 h-4 inline mr-1" /> AI-Powered Summarization</span>
+              </div>
+              <div className="bg-purple-950 border-2 border-purple-800 px-4 py-2 rounded-lg">
+                <span className="text-white font-bold"><LinkIcon className="w-4 h-4 inline mr-1" /> IPFS Storage</span>
+              </div>
+              <div className="bg-purple-950 border-2 border-purple-800 px-4 py-2 rounded-lg">
+                <span className="text-white font-bold"><Link2 className="w-4 h-4 inline mr-1" /> On-Chain Verification</span>
+              </div>
+            </div>
           </div>
           
           {/* URL Input */}
-          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-            <h2 className="text-2xl font-bold mb-4">Step 1: Enter Article URL</h2>
+          <div className="mb-10 border-t-2 border-purple-600 pt-6">
+            <div className="flex items-center justify-center gap-4 mb-6">
+              <div className="w-12 h-12 bg-purple-600 rounded-lg flex items-center justify-center border-2 border-purple-500">
+                <Search className="w-6 h-6 text-white" />
+              </div>
+              <h2 className="text-2xl font-black text-white uppercase tracking-wide">Enter Article URL</h2>
+            </div>
             <form onSubmit={handleScrape}>
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <input
                   type="url"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="https://example.com/article..."
-                  className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+                  className="flex-1 px-6 py-4 bg-purple-950 border-2 border-purple-800 rounded-lg text-white placeholder-purple-500 focus:outline-none focus:border-purple-600 transition-colors font-bold"
                   required
                   disabled={loading}
                 />
                 <button
                   type="submit"
                   disabled={loading}
-                  className="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 font-medium"
+                  className="bg-purple-600 hover:bg-purple-500 text-white px-8 py-4 rounded-lg font-bold uppercase border-2 border-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 whitespace-nowrap"
                 >
-                  {loading && curatingStep === 'idle' ? '⏳ Scraping...' : '🔍 Scrape'}
+                  {loading && curatingStep === 'idle' ? <><Clock className="w-4 h-4 inline mr-1" /> Scraping...</> : <><Search className="w-4 h-4 inline mr-1" /> Scrape Article</>}
                 </button>
               </div>
             </form>
@@ -276,136 +258,190 @@ export default function LandingPage() {
           
           {/* Error Display */}
           {error && (
-            <div className="bg-red-50 border-2 border-red-300 text-red-800 px-6 py-4 rounded-lg mb-6">
-              <p className="font-medium">❌ Error: {error}</p>
+            <div className="bg-red-900 border-2 border-red-600 rounded-lg px-6 py-4 mb-8 text-center">
+              <p className="font-black text-red-300 flex items-center justify-center gap-2 uppercase">
+                <X className="w-5 h-5" /> {error}
+              </p>
             </div>
           )}
           
           {/* Scraped Article Preview */}
           {scrapedPreview && (
-            <div className="bg-white rounded-lg shadow-xl p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">Step 2: Preview & Save</h2>
-                <button 
-                  onClick={handleReset}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  ✕ Clear
-                </button>
-              </div>
-              
-              <div className="border-2 border-gray-200 rounded-lg p-4 mb-6">
-                {scrapedPreview.imageUrl && (
-                  <img 
-                    src={scrapedPreview.imageUrl} 
-                    alt={scrapedPreview.title}
-                    className="w-full h-64 object-cover rounded-lg mb-4"
-                  />
-                )}
-                
-                <h3 className="text-2xl font-bold mb-3 text-gray-900">
-                  {scrapedPreview.title}
-                </h3>
-                
-                {/* Short Summary */}
-                <div className="bg-blue-50 p-4 rounded-lg mb-4">
-                  <h4 className="font-bold text-blue-900 mb-2">Quick Summary:</h4>
-                  <p className="text-gray-700 leading-relaxed">
-                    {scrapedPreview.summary}
-                  </p>
+            <div className="bg-purple-900 border-2 border-purple-700 rounded-lg overflow-hidden mb-10">
+              <div className="p-8">
+                <div className="flex justify-between items-center mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center border-2 border-purple-500">
+                      <CheckCircle className="w-6 h-6 text-white" />
+                    </div>
+                    <h2 className="text-2xl font-black text-white uppercase tracking-wide">Preview & Curate</h2>
+                  </div>
+                  <button 
+                    onClick={handleReset}
+                    className="text-purple-400 hover:text-purple-300 transition-colors p-2"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
                 </div>
                 
-                {/* Detailed Summary Preview */}
-                {scrapedPreview.detailedSummary && (
-                  <div className="bg-gray-50 p-4 rounded-lg mb-4">
-                    <h4 className="font-bold text-gray-900 mb-2">Detailed Analysis:</h4>
-                    <p className="text-gray-700 leading-relaxed line-clamp-6">
-                      {scrapedPreview.detailedSummary}
+                <div className="bg-purple-950 border-2 border-purple-800 rounded-lg p-6 mb-6">
+                  {scrapedPreview.imageUrl && (
+                    <div className="border-2 border-purple-700 rounded-lg h-80 overflow-hidden mb-6">
+                      <img 
+                        src={scrapedPreview.imageUrl} 
+                        alt={scrapedPreview.title}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
+                  
+                  <h3 className="text-3xl font-black mb-4 text-white leading-tight uppercase tracking-wide">
+                    {scrapedPreview.title}
+                  </h3>
+                  
+                  {/* Short Summary */}
+                  <div className="bg-purple-900 border-2 border-purple-700 rounded-lg p-6 mb-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <FileText className="w-6 h-6 text-white" />
+                      <h4 className="font-black text-white text-lg uppercase">Quick Summary</h4>
+                    </div>
+                    <p className="text-white leading-relaxed text-sm">
+                      {scrapedPreview.summary}
                     </p>
                   </div>
-                )}
-                
-                {/* Key Points */}
-                {scrapedPreview.keyPoints && scrapedPreview.keyPoints.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="font-bold text-gray-900 mb-2">Key Points:</h4>
-                    <ul className="list-disc list-inside space-y-1">
-                      {scrapedPreview.keyPoints.slice(0, 3).map((point, idx) => (
-                        <li key={idx} className="text-gray-700">{point}</li>
-                      ))}
-                    </ul>
+                  
+                  {/* Detailed Summary Preview */}
+                  {scrapedPreview.detailedSummary && (
+                    <div className="bg-purple-900 border-2 border-purple-700 rounded-lg p-6 mb-6">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Newspaper className="w-6 h-6 text-white" />
+                        <h4 className="font-black text-white text-lg uppercase">Detailed Analysis</h4>
+                      </div>
+                      <p className="text-white leading-relaxed line-clamp-6 text-sm">
+                        {scrapedPreview.detailedSummary}
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Key Points */}
+                  {scrapedPreview.keyPoints && scrapedPreview.keyPoints.length > 0 && (
+                    <div className="mb-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Key className="w-6 h-6 text-white" />
+                        <h4 className="font-black text-white text-lg uppercase">Key Takeaways</h4>
+                      </div>
+                      <ul className="space-y-2">
+                        {scrapedPreview.keyPoints.slice(0, 3).map((point, idx) => (
+                          <li key={idx} className="flex items-start gap-3 text-white text-sm">
+                            <span className="text-white mt-1">•</span>
+                            <span>{point}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {/* Metadata */}
+                  <div className="flex flex-wrap gap-4 text-sm pb-6 border-b-2 border-purple-700">
+                    {scrapedPreview.author && (
+                      <span className="flex items-center gap-2 bg-purple-900 border-2 border-purple-700 px-3 py-1.5 rounded-lg">
+                        <User className="w-4 h-4" /> <span className="text-white font-bold">{scrapedPreview.author}</span>
+                      </span>
+                    )}
+                    {scrapedPreview.publisher && (
+                      <span className="flex items-center gap-2 bg-purple-900 border-2 border-purple-700 px-3 py-1.5 rounded-lg">
+                        <Newspaper className="w-4 h-4" /> <span className="text-white font-bold">{scrapedPreview.publisher}</span>
+                      </span>
+                    )}
+                    {scrapedPreview.date && (
+                      <span className="flex items-center gap-2 bg-purple-900 border-2 border-purple-700 px-3 py-1.5 rounded-lg">
+                        <Calendar className="w-4 h-4" /> <span className="text-white font-bold">{new Date(scrapedPreview.date).toLocaleDateString()}</span>
+                      </span>
+                    )}
                   </div>
-                )}
-                
-                {/* Metadata */}
-                <div className="flex gap-4 text-sm text-gray-600 mb-4">
-                  {scrapedPreview.author && (
-                    <span>👤 {scrapedPreview.author}</span>
-                  )}
-                  {scrapedPreview.publisher && (
-                    <span>📰 {scrapedPreview.publisher}</span>
-                  )}
-                  {scrapedPreview.date && (
-                    <span>📅 {new Date(scrapedPreview.date).toLocaleDateString()}</span>
-                  )}
+                  
+                  <a
+                    href={scrapedPreview.articleUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-white hover:text-purple-300 text-sm flex items-center gap-2 mt-4 transition-colors group font-bold"
+                  >
+                    <LinkIcon className="w-4 h-4" />
+                    <span className="group-hover:underline truncate">{scrapedPreview.articleUrl}</span>
+                  </a>
                 </div>
                 
-                <a
-                  href={scrapedPreview.articleUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline text-sm"
-                >
-                  🔗 {scrapedPreview.articleUrl}
-                </a>
-              </div>
-              
-              {/* Action Buttons */}
-              <div className="flex gap-3">
-                <a
-                  href={scrapedPreview.articleUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 text-center bg-gray-100 text-gray-700 py-3 rounded-lg hover:bg-gray-200 font-medium"
-                >
-                  📖 Read Original
-                </a>
-                
-                {/* THIS IS THE MODIFIED BUTTON */}
-                <button
-                  onClick={handleCurationSubmit}
-                  disabled={loading || isPending || isConfirming || !isConnected}
-                  className="flex-1 bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 disabled:bg-gray-400 font-medium"
-                >
-                  {!isConnected ? 'Please Connect Wallet' : getButtonText()}
-                </button>
+                {/* Action Buttons */}
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <a
+                    href={scrapedPreview.articleUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-center bg-purple-950 border-2 border-purple-800 text-white py-4 rounded-lg hover:border-purple-600 font-bold uppercase transition-all duration-300 flex items-center justify-center gap-2"
+                  >
+                    <BookOpen className="w-5 h-5" /> Read Original Article
+                  </a>
+                  
+                  <button
+                    onClick={handleCurationSubmit}
+                    disabled={loading || isPending || isConfirming || !isConnected}
+                    className="bg-purple-600 hover:bg-purple-500 text-white py-4 rounded-lg font-bold uppercase border-2 border-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2"
+                  >
+                    {!isConnected ? <><LinkIcon className="w-5 h-5" /> Connect Wallet to Curate</> : getButtonText()}
+                  </button>
+                </div>
               </div>
             </div>
           )}
           
           {/* How it Works */}
           {!scrapedPreview && !loading && (
-            <div className="bg-white rounded-lg shadow-lg p-6 mt-8">
-              <h3 className="text-xl font-bold mb-4">How It Works</h3>
-              <div className="space-y-3 text-gray-700">
-                <div className="flex gap-3">
-                  <span className="text-2xl">1️⃣</span>
-                  <p><strong>Scrape:</strong> Paste article URL - AI extracts content and metadata</p>
+            <>
+              {/* Separator */}
+              <div className="border-t-2 border-purple-600 mb-6"></div>
+
+              <div className="mb-10">
+                <div className="flex items-center justify-center gap-4 mb-6">
+                  <div className="w-12 h-12 bg-purple-600 rounded-lg flex items-center justify-center border-2 border-purple-500">
+                    <Rocket className="w-6 h-6 text-white" />
+                  </div>
+                  <h3 className="text-2xl font-black text-white uppercase tracking-wide">How It Works</h3>
                 </div>
-                <div className="flex gap-3">
-                  <span className="text-2xl">2️⃣</span>
-                  <p><strong>Analyze:</strong> OpenAI generates both quick summary and detailed analysis</p>
-                </div>
-                <div className="flex gap-3">
-                  <span className="text-2xl">3️⃣</span>
-                  <p><strong>Review:</strong> Preview key points, statistics, and full content extraction</p>
-                </div>
-                <div className="flex gap-3">
-                  <span className="text-2xl">4️⃣</span>
-                  <p><strong>Curate:</strong> Save to database - blockchain integration coming soon!</p>
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="bg-purple-950 border-2 border-purple-800 rounded-lg p-6 hover:border-purple-600 transition-all duration-300">
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-3xl flex items-center justify-center w-10 h-10 bg-purple-900 rounded-lg border-2 border-purple-700 font-black text-white">1</span>
+                      <h4 className="font-black text-white text-lg uppercase">Scrape</h4>
+                    </div>
+                    <p className="text-white text-sm">Paste article URL - AI extracts content and metadata automatically</p>
+                  </div>
+                  
+                  <div className="bg-purple-950 border-2 border-purple-800 rounded-lg p-6 hover:border-purple-600 transition-all duration-300">
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-3xl flex items-center justify-center w-10 h-10 bg-purple-900 rounded-lg border-2 border-purple-700 font-black text-white">2</span>
+                      <h4 className="font-black text-white text-lg uppercase">Analyze</h4>
+                    </div>
+                    <p className="text-white text-sm">OpenAI generates both quick summary and detailed analysis</p>
+                  </div>
+                  
+                  <div className="bg-purple-950 border-2 border-purple-800 rounded-lg p-6 hover:border-purple-600 transition-all duration-300">
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-3xl flex items-center justify-center w-10 h-10 bg-purple-900 rounded-lg border-2 border-purple-700 font-black text-white">3</span>
+                      <h4 className="font-black text-white text-lg uppercase">Review</h4>
+                    </div>
+                    <p className="text-white text-sm">Preview key points, statistics, and full content extraction</p>
+                  </div>
+                  
+                  <div className="bg-purple-950 border-2 border-purple-800 rounded-lg p-6 hover:border-purple-600 transition-all duration-300">
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-3xl flex items-center justify-center w-10 h-10 bg-purple-900 rounded-lg border-2 border-purple-700 font-black text-white">4</span>
+                      <h4 className="font-black text-white text-lg uppercase">Curate</h4>
+                    </div>
+                    <p className="text-white text-sm">Upload to IPFS and submit to blockchain for verification</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            </>
           )}
         </div>
       </main>

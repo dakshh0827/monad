@@ -13,32 +13,36 @@ function App() {
         toastOptions={{
           duration: 3000,
           style: {
-            background: '#363636',
-            color: '#fff',
-            padding: '16px',
+            background: '#171717', // bg-neutral-900
+            color: '#e5e5e5',     // text-neutral-200
+            border: '1px solid #404040', // border-neutral-700
             borderRadius: '8px',
+            padding: '16px',
           },
           success: {
             duration: 3000,
             iconTheme: {
-              primary: '#10B981',
+              primary: '#a855f7', // purple-500
               secondary: '#fff',
             },
           },
           error: {
             duration: 4000,
             iconTheme: {
-              primary: '#EF4444',
+              primary: '#ef4444', // red-500
               secondary: '#fff',
             },
           },
         }}
       />
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/curated" element={<CuratedArticlesPage />} />
-        <Route path="/curated/:id" element={<ArticleDetailPage />} />
-      </Routes>
+      {/* Root wrapper for consistent background */}
+      <div className="min-h-screen bg-[#0A0A0A]">
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/curated" element={<CuratedArticlesPage />} />
+          <Route path="/curated/:id" element={<ArticleDetailPage />} />
+        </Routes>
+      </div>
     </Router>
   );
 }
